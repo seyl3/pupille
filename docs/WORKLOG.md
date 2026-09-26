@@ -10,7 +10,7 @@ cannot provide, and is listed under HANDOFF below rather than attempted.
 **Proof commands, all exit 0 on this machine:**
 
 ```
-cd backend && npm test                      # 21/21 tests, real Postgres
+cd backend && npm test                      # 22/22 tests, real Postgres
 cd ios/PupilleCore && swift test             # 9/9 tests
 cd tools/fake-phone && DATABASE_URL=... ./run.sh   # full E2E chain over real HTTP
 ```
