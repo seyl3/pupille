@@ -19,6 +19,7 @@ struct ContentView: View {
     @State private var selectedDetailPost: FeedPost?
     @State private var showPublishSuccess = false
     @State private var publishInFlight = false
+    @State private var showResetConfirmation = false
     @State private var onboardingVisible = false
     @State private var orbiting = false
     @FocusState private var captionFocused: Bool
@@ -40,6 +41,24 @@ struct ContentView: View {
         .sheet(item: $selectedAuditPost) { post in verificationSheet(for: post) }
         .fullScreenCover(item: $selectedDetailPost) { post in
             PostDetailView(model: model, post: post)
+        }
+        .confirmationDialog("Reset the demo server?", isPresented: $showResetConfirmation,
+                            titleVisibility: .visible) {
+            Button("Delete all demo profiles and photos", role: .destructive) {
+                Task {
+                    if await model.resetDemo() {
+                        capturedPhoto = nil
+                        caption = ""
+                        selectedAvatar = nil
+                        draftHandle = ""
+                        readyToClaimHandle = false
+                        exploringAsGuest = false
+                        selectedTab = 0
+                    }
+                }
+            }
+        } message: {
+            Text("This clears profiles, photos, and reactions on your staging server. Face ID is required.")
         }
         .overlay {
             if showPublishSuccess {
@@ -449,6 +468,11 @@ struct ContentView: View {
                                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                                     .keyboardType(.URL).textFieldStyle(.roundedBorder)
                                 Button("Save server URL") { model.baseURL = backendURL }
+                                Button("Reset demo server", role: .destructive) {
+                                    showResetConfirmation = true
+                                }
+                                .foregroundStyle(.red)
+                                .disabled(model.isBusy)
                             }.padding(.top, 12)
                         } label: {
                             Label("Development", systemImage: "gearshape")

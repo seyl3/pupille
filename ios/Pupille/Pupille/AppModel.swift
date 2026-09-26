@@ -270,7 +270,7 @@ final class AppModel: ObservableObject {
             ])
             guard result.reset else { throw AppError.invalidResponse }
             clearLocalIdentity()
-            status = "Demo reset. Create a new World verified profile."
+            status = ""
             return true
         } catch {
             status = "Reset failed: \(error.localizedDescription)"
