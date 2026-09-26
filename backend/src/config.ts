@@ -12,4 +12,9 @@ export const config = {
   // When set, the backend calls this instead of the real World API — used so tests can
   // run against a recorded fixture instead of a live network call. Never set in production.
   worldApiFixtureMode: process.env.PUPILLE_WORLD_API_FIXTURE_MODE === "1",
+  // When set, App Attest verification trusts this PEM instead of Apple's pinned root —
+  // used ONLY by tools/fake-phone and backend tests, which sign fixtures with a throwaway
+  // test CA since there is no physical iPhone to produce a real Apple-issued certificate.
+  // Must never be set outside a dev/test environment: it defeats the entire point of pinning.
+  appAttestRootCaOverridePem: process.env.PUPILLE_APP_ATTEST_TEST_ROOT_PEM,
 };

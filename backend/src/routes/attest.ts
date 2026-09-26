@@ -30,7 +30,8 @@ export function attestRoutes(pool: pg.Pool) {
       const result = await verifyAttestation(
         Buffer.from(body.attestationObject, "base64"),
         Buffer.from(body.clientDataHash, "hex"),
-        config.appId
+        config.appId,
+        config.appAttestRootCaOverridePem // undefined in production; only fake-phone/tests set this
       );
       await pool.query(
         `insert into app_attest_keys (key_id, public_key, receipt, counter) values ($1, $2, $3, $4)
