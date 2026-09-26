@@ -24,8 +24,14 @@ struct CameraCheckView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityLabel("Captured photo preview")
             } else {
-                CameraPreview(session: camera.session, onFocus: { camera.focus(at: $0) })
-                    .ignoresSafeArea(edges: .bottom)
+                GeometryReader { geometry in
+                    let width = min(geometry.size.width, geometry.size.height * 3 / 4)
+                    CameraPreview(session: camera.session,
+                                  onFocus: { camera.focus(at: $0) },
+                                  onReady: { camera.attachPreview($0) })
+                        .frame(width: width, height: width * 4 / 3)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
             }
             VStack(spacing: 0) {
                 topBar
@@ -138,15 +144,19 @@ struct CameraCheckView: View {
 private struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
     let onFocus: (CGPoint) -> Void
+    let onReady: (AVCaptureVideoPreviewLayer) -> Void
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
         view.previewLayer.session = session
         view.previewLayer.videoGravity = .resizeAspectFill
+        onReady(view.previewLayer)
         let recognizer = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap(_:)))
         view.addGestureRecognizer(recognizer)
         return view
     }
-    func updateUIView(_ view: PreviewView, context: Context) {}
+    func updateUIView(_ view: PreviewView, context: Context) {
+        onReady(view.previewLayer)
+    }
     func makeCoordinator() -> Coordinator { Coordinator(onFocus: onFocus) }
 
     final class Coordinator: NSObject {
@@ -185,6 +195,9 @@ private final class CameraCheckSession: NSObject, ObservableObject, AVCapturePho
     let session = AVCaptureSession()
     private let output = AVCapturePhotoOutput()
     private let queue = DispatchQueue(label: "app.pupille.camera")
+    private weak var previewLayer: AVCaptureVideoPreviewLayer?
+    private var rotationCoordinator: AVCaptureDevice.RotationCoordinator?
+    private var previewRotationObservation: NSKeyValueObservation?
 
     @Published var imageData: Data?
     @Published var error: String?
@@ -246,6 +259,7 @@ private final class CameraCheckSession: NSObject, ObservableObject, AVCapturePho
             session.addOutput(output)
             session.sessionPreset = .photo
             session.commitConfiguration()
+            configureRotation(for: device)
             hasFlash = device.hasFlash
             supportsUltraWide = ultraWide != nil
             let captureSession = session
@@ -325,6 +339,38 @@ private final class CameraCheckSession: NSObject, ObservableObject, AVCapturePho
         switchCamera(to: nextDevice, targetPosition: nextPosition, targetZoom: 1)
     }
 
+    func attachPreview(_ layer: AVCaptureVideoPreviewLayer) {
+        guard previewLayer !== layer else { return }
+        previewLayer = layer
+        if let device = (session.inputs.first as? AVCaptureDeviceInput)?.device {
+            configureRotation(for: device)
+        }
+    }
+
+    private func configureRotation(for device: AVCaptureDevice) {
+        previewRotationObservation = nil
+        let coordinator = AVCaptureDevice.RotationCoordinator(device: device, previewLayer: previewLayer)
+        rotationCoordinator = coordinator
+        previewRotationObservation = coordinator.observe(
+            \.videoRotationAngleForHorizonLevelPreview, options: [.initial, .new]
+        ) { [weak self] coordinator, _ in
+            Task { @MainActor [weak self] in
+                self?.applyPreviewRotation(coordinator.videoRotationAngleForHorizonLevelPreview)
+            }
+        }
+    }
+
+    private func applyPreviewRotation(_ angle: CGFloat) {
+        guard let connection = previewLayer?.connection else { return }
+        if connection.isVideoRotationAngleSupported(angle) {
+            connection.videoRotationAngle = angle
+        }
+        if connection.isVideoMirroringSupported {
+            connection.automaticallyAdjustsVideoMirroring = false
+            connection.isVideoMirrored = position == .front
+        }
+    }
+
     private func switchCamera(to nextDevice: AVCaptureDevice,
                               targetPosition: AVCaptureDevice.Position, targetZoom: CGFloat) {
         isReady = false
@@ -353,6 +399,7 @@ private final class CameraCheckSession: NSObject, ObservableObject, AVCapturePho
                         self.hasFlash = nextDevice.hasFlash
                         self.zoom = targetZoom
                         self.isReady = true
+                        self.configureRotation(for: nextDevice)
                     }
                 } else {
                     if let previousInput { captureSession.addInput(previousInput) }
@@ -377,6 +424,16 @@ private final class CameraCheckSession: NSObject, ObservableObject, AVCapturePho
         error = nil
         let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
         settings.flashMode = hasFlash && output.supportedFlashModes.contains(flashMode) ? flashMode : .off
+        if let connection = output.connection(with: .video) {
+            if let angle = rotationCoordinator?.videoRotationAngleForHorizonLevelCapture,
+               connection.isVideoRotationAngleSupported(angle) {
+                connection.videoRotationAngle = angle
+            }
+            if connection.isVideoMirroringSupported {
+                connection.automaticallyAdjustsVideoMirroring = false
+                connection.isVideoMirrored = position == .front
+            }
+        }
         output.capturePhoto(with: settings, delegate: self)
     }
 
