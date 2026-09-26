@@ -43,6 +43,11 @@ create table if not exists capture_challenges (
   profile_id bytea not null, key_version int not null, app_attest_key_id text not null,
   image_sha256 bytea, depth_sha256 bytea, assertion_sha256 bytea,
   commitment bytea, post_signature bytea, world_proof jsonb,
+  -- Not in the architecture doc's schema table verbatim, but required to make POST
+  -- /v1/captures/:id/human able to persist `posts.image`/`posts.depth` without asking the
+  -- client to resend bytes it already uploaded to /device. Holds the exact bytes uploaded
+  -- to /device, moved into `posts` once /human succeeds.
+  pending_image bytea, pending_depth bytea,
   status text not null default 'issued',           -- issued | device_ok | used | expired
   issued_at timestamptz not null default now(), expires_at timestamptz not null
 );
