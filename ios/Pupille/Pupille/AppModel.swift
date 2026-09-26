@@ -74,8 +74,14 @@ private struct AvatarChallenge: Decodable { let challengeId: String; let challen
 private struct AvatarUploaded: Decodable { let avatarUrl: String }
 private struct ReactionChallenge: Decodable { let challengeId: String; let challenge: String }
 private struct ReactionResult: Decodable { let reactions: ReactionCounts; let myReaction: String }
+private struct DemoResetChallenge: Decodable { let challengeId: String; let challenge: String }
+private struct DemoResetResult: Decodable { let reset: Bool }
 struct ProfileSummary: Decodable {
     let handle: String; let avatarUrl: String?; let postCount: Int; let joinedAt: String
+    let certs: [ProfileCertEntry]
+}
+struct ProfileCertEntry: Decodable {
+    let keyVersion: Int; let certB64: String; let sigB64: String
 }
 private struct DeviceAccepted: Decodable { let worldSignal: String }
 private struct APIError: Decodable { let error: String }
@@ -87,6 +93,7 @@ final class AppModel: ObservableObject {
     @Published var imageBytes: [String: Data] = [:]
     @Published var avatarBytes: [String: Data] = [:]
     @Published var profile: ProfileSummary?
+    @Published var publicProfiles: [String: ProfileSummary] = [:]
     @Published var verifiedPostIDs: Set<String> = []
     @Published var verificationChecks: [String: [VerificationCheck]] = [:]
     @Published var reactionCounts: [String: ReactionCounts] = [:]
@@ -186,6 +193,32 @@ final class AppModel: ObservableObject {
         } catch { status = "Profile: \(error.localizedDescription)" }
     }
 
+    func loadPublicProfile(_ handle: String) async {
+        do {
+            let loaded: ProfileSummary = try await get("/v1/profiles/\(handle)")
+            publicProfiles[handle] = loaded
+            if let avatarUrl = loaded.avatarUrl,
+               let (avatar, response) = try? await URLSession.shared.data(from: url(avatarUrl)),
+               (response as? HTTPURLResponse)?.statusCode == 200 {
+                avatarBytes[handle] = avatar
+            }
+        } catch { status = "Profile: \(error.localizedDescription)" }
+    }
+
+    func hasVerifiedHumanCertificate(_ summary: ProfileSummary) -> Bool {
+        guard let issuerBytes = Data(hexString: issuerPublicKeyHex),
+              let issuer = try? Curve25519.Signing.PublicKey(rawRepresentation: issuerBytes) else { return false }
+        return summary.certs.contains { entry in
+            guard let bytes = Data(base64Encoded: entry.certB64),
+                  let signature = Data(base64Encoded: entry.sigB64),
+                  issuer.isValidSignature(signature, for: bytes),
+                  let cert = try? JSONDecoder().decode(ProfileCertificate.self, from: bytes) else { return false }
+            return cert.handle == summary.handle && cert.keyVersion == entry.keyVersion
+                && cert.credential == "proof_of_human"
+                && ["staging", "production"].contains(cert.environment ?? "")
+        }
+    }
+
     func uploadAvatar(_ image: Data) async {
         isBusy = true
         status = "Approving profile photo with Face ID…"
@@ -212,6 +245,53 @@ final class AppModel: ObservableObject {
             status = "Profile photo updated."
             await loadProfile()
         } catch { status = "Profile photo failed: \(error.localizedDescription)" }
+    }
+
+    @discardableResult
+    func resetDemo() async -> Bool {
+        isBusy = true
+        status = "Approve demo reset with Face ID…"
+        defer { isBusy = false }
+        do {
+            guard let profileHex = UserDefaults.standard.string(forKey: "profileID"),
+                  let profileID = Data(hexString: profileHex), profileID.count == 16,
+                  !handle.isEmpty else { throw AppError.server("Create a profile before resetting this demo") }
+            let challenge: DemoResetChallenge = try await post("/v1/dev/reset/challenge", ["profileId": profileHex])
+            guard let nonce = Data(hexString: challenge.challenge), nonce.count == 32 else {
+                throw AppError.invalidResponse
+            }
+            let message = Data("pupille:demo-reset:v1".utf8) + nonce + profileID
+            let signature = try persistentProfileKey().signature(for: message).rawRepresentation
+            let result: DemoResetResult = try await post("/v1/dev/reset", [
+                "challengeId": challenge.challengeId, "signature": signature.hex,
+            ])
+            guard result.reset else { throw AppError.invalidResponse }
+            for key in ["profileHandle", "profileID", "profileKeyReference",
+                        "registeredAttestKeyID", "registeredAttestServerKeyID"] {
+                UserDefaults.standard.removeObject(forKey: key)
+            }
+            handle = ""
+            posts = []
+            imageBytes = [:]
+            avatarBytes = [:]
+            profile = nil
+            publicProfiles = [:]
+            verifiedPostIDs = []
+            verificationChecks = [:]
+            reactionCounts = [:]
+            myReactions = [:]
+            reactingPostIDs = []
+            postEnvironments = [:]
+            request = nil
+            signup = nil
+            connectorURL = nil
+            worldRequestActive = false
+            status = "Demo reset. Create a new World verified profile."
+            return true
+        } catch {
+            status = "Reset failed: \(error.localizedDescription)"
+            return false
+        }
     }
 
     private func audit(post: FeedPost, image: Data) -> [VerificationCheck] {

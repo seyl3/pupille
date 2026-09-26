@@ -16,6 +16,7 @@ struct ContentView: View {
     @State private var selectedAuditPost: FeedPost?
     @State private var showPublishSuccess = false
     @State private var publishInFlight = false
+    @State private var showResetConfirmation = false
     @FocusState private var captionFocused: Bool
 
     var body: some View {
@@ -28,6 +29,24 @@ struct ContentView: View {
         }
         .sheet(isPresented: $model.worldRequestActive) { WorldProofView(model: model) }
         .sheet(item: $selectedAuditPost) { post in verificationSheet(for: post) }
+        .confirmationDialog("Reset the Pupille demo?", isPresented: $showResetConfirmation,
+                            titleVisibility: .visible) {
+            Button("Delete all demo profiles and photos", role: .destructive) {
+                Task {
+                    if await model.resetDemo() {
+                        capturedPhoto = nil
+                        caption = ""
+                        selectedAvatar = nil
+                        draftHandle = ""
+                        readyToClaimHandle = false
+                        exploringAsGuest = false
+                        selectedTab = 0
+                    }
+                }
+            }
+        } message: {
+            Text("This clears every profile, photo, and reaction on your local staging server. Face ID is required. Your World and server configuration stays in place.")
+        }
         .overlay {
             if showPublishSuccess {
                 ZStack {
@@ -89,8 +108,6 @@ struct ContentView: View {
                         .keyboardType(.URL)
                     Button("Save server URL") { model.baseURL = backendURL }
                 }
-                NavigationLink("Device checks") { DeviceLabView() }
-                    .font(.footnote).foregroundStyle(.secondary)
             }
             .padding(28)
             .onAppear { backendURL = model.baseURL }
@@ -118,6 +135,9 @@ struct ContentView: View {
                 }
                 .background(Color(uiColor: .systemGroupedBackground))
                 .navigationTitle("Pupille")
+                .navigationDestination(for: String.self) { handle in
+                    PublicProfileView(model: model, handle: handle)
+                }
                 .refreshable { await model.loadFeed() }
                 .task { await model.loadFeed() }
             }
@@ -285,7 +305,10 @@ struct ContentView: View {
                                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                                     .keyboardType(.URL).textFieldStyle(.roundedBorder)
                                 Button("Save server URL") { model.baseURL = backendURL }
-                                NavigationLink("Device checks") { DeviceLabView() }
+                                Button("Reset demo from scratch", role: .destructive) {
+                                    showResetConfirmation = true
+                                }
+                                .disabled(model.isBusy)
                             }.padding(.top, 10)
                         }.font(.footnote).foregroundStyle(.secondary)
                         }
@@ -332,14 +355,19 @@ struct ContentView: View {
 
     private func feedCard(_ post: FeedPost) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack(spacing: 11) {
-                avatar(for: post.author.handle, size: 40)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("@\(post.author.handle)").font(.headline)
-                    Text("Human verified").font(.caption).foregroundStyle(.secondary)
+            NavigationLink(value: post.author.handle) {
+                HStack(spacing: 11) {
+                    avatar(for: post.author.handle, size: 40)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("@\(post.author.handle)").font(.headline)
+                        Text("Human verified").font(.caption).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Image(systemName: "chevron.right").font(.caption).foregroundStyle(.secondary)
                 }
-                Spacer()
             }
+            .buttonStyle(.plain)
+            .accessibilityLabel("View @\(post.author.handle)'s profile")
             ZStack(alignment: .bottomTrailing) {
                 if let bytes = model.imageBytes[post.id], let image = UIImage(data: bytes) {
                     Image(uiImage: image).resizable().scaledToFit()
@@ -430,6 +458,77 @@ struct ContentView: View {
             } }
         }
         .presentationDetents([.medium, .large])
+    }
+}
+
+private struct PublicProfileView: View {
+    @ObservedObject var model: AppModel
+    let handle: String
+
+    private var authorPosts: [FeedPost] {
+        model.posts.filter { $0.author.handle == handle }
+    }
+
+    var body: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 24) {
+                HStack(spacing: 18) {
+                    Group {
+                        if let data = model.avatarBytes[handle], let image = UIImage(data: data) {
+                            Image(uiImage: image).resizable().scaledToFill()
+                        } else {
+                            Image("PupilleIcon").resizable().scaledToFill()
+                        }
+                    }
+                    .frame(width: 92, height: 92)
+                    .clipShape(Circle())
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("@\(handle)").font(.title.bold())
+                        if let profile = model.publicProfiles[handle] {
+                            Label(model.hasVerifiedHumanCertificate(profile)
+                                  ? "World ID · Human" : "Verification unavailable",
+                                  systemImage: model.hasVerifiedHumanCertificate(profile)
+                                  ? "checkmark.seal.fill" : "xmark.circle.fill")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(model.hasVerifiedHumanCertificate(profile) ? .green : .red)
+                        }
+                    }
+                    Spacer(minLength: 0)
+                }
+                .padding(20)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28))
+
+                HStack(spacing: 8) {
+                    Text("\(model.publicProfiles[handle]?.postCount ?? authorPosts.count)")
+                        .font(.title2.bold())
+                    Text("verified captures").foregroundStyle(.secondary)
+                }
+                .padding(18)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
+
+                Text("Captures").font(.title2.bold())
+                if authorPosts.isEmpty {
+                    ContentUnavailableView("No captures yet", systemImage: "photo")
+                } else {
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
+                        ForEach(authorPosts) { post in
+                            if let bytes = model.imageBytes[post.id], let image = UIImage(data: bytes) {
+                                Image(uiImage: image).resizable().scaledToFit()
+                                    .frame(maxWidth: .infinity)
+                                    .clipShape(RoundedRectangle(cornerRadius: 20))
+                                    .accessibilityLabel("Capture by @\(handle)")
+                            }
+                        }
+                    }
+                }
+            }
+            .padding(20)
+        }
+        .background(Color(uiColor: .systemGroupedBackground))
+        .navigationTitle("Profile")
+        .navigationBarTitleDisplayMode(.inline)
+        .task { await model.loadPublicProfile(handle) }
     }
 }
 
