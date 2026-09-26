@@ -16,6 +16,8 @@ import { postSignatureMessage } from "../proto/captureHasher.js";
 import { config } from "../config.js";
 import { createWorldVerifyClient, WorldVerifyError, type WorldVerifyResult } from "../world/verifyClient.js";
 import { signCertificate } from "../issuer.js";
+import { verifyAssertion, AppAttestVerificationError } from "../appattest/verify.js";
+import { clientDataHash as computeClientDataHash } from "../proto/captureHasher.js";
 
 export function captureRoutes(pool: pg.Pool) {
   const app = new Hono();
@@ -78,17 +80,39 @@ export function captureRoutes(pool: pg.Pool) {
       return c.json({ error: "post_signature_invalid" }, 400);
     }
 
-    // NOTE: full App Attest *assertion* verification (as opposed to the one-time attestKey
-    // registration already checked in /attest/register) needs the stored App Attest public key
-    // and a counter check; wiring the assertion-specific COSE/CBOR parse here is tracked as
-    // Untested in docs/WORKLOG.md — this build verifies the postSignature and commitment chain,
-    // which is the check that actually binds authorship, and stores the assertion bytes for audit.
+    // App Attest assertion check, per docs/ARCHITECTURE.md §08: signature over
+    // SHA256(authenticatorData || clientDataHash) under the *stored* App Attest public key
+    // (from /attest/register), rpIdHash == SHA256(appId), counter strictly greater than stored.
+    const attestKeyRow = await pool.query(
+      "select public_key, counter from app_attest_keys where key_id = $1",
+      [row.app_attest_key_id]
+    );
+    if (attestKeyRow.rowCount === 0) {
+      return c.json({ error: "app_attest_key_not_found" }, 400);
+    }
+    const storedPublicKey: Buffer = attestKeyRow.rows[0].public_key;
+    const storedCounter: number = attestKeyRow.rows[0].counter;
+    const expectedClientDataHash = computeClientDataHash(imgHash, dHash, row.challenge);
+
+    let assertionResult;
+    try {
+      assertionResult = verifyAssertion(assertion, expectedClientDataHash, config.appId, storedPublicKey, storedCounter);
+    } catch (err) {
+      if (err instanceof AppAttestVerificationError) {
+        return c.json({ error: err.code }, 400);
+      }
+      throw err;
+    }
 
     await pool.query(
       `update capture_challenges set image_sha256=$1, depth_sha256=$2, assertion_sha256=$3,
          commitment=$4, post_signature=$5, status='device_ok', pending_image=$6, pending_depth=$7 where id=$8`,
       [imgHash, dHash, assertHash, commitment, postSig, imageBytes, depthBytes, id]
     );
+    await pool.query("update app_attest_keys set counter = $1 where key_id = $2", [
+      assertionResult.counter,
+      row.app_attest_key_id,
+    ]);
 
     const rpContext = signRequest({ signingKeyHex: config.rpSigningKeyHex });
     return c.json({ rpContext, worldSignal: worldSignal(commitment) });

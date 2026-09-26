@@ -13,7 +13,7 @@ import { readFileSync, existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 import { SoftwareProfileKey } from "./softwareProfileKey.js";
-import { buildFakeAttestation } from "./fakeAppAttest.js";
+import { buildFakeAttestation, buildFakeAssertion } from "./fakeAppAttest.js";
 import {
   profileCommitment,
   profileSignal,
@@ -24,6 +24,7 @@ import {
   imageHash,
   depthHash,
   assertionHash,
+  clientDataHash,
   hashSignal,
   hex,
 } from "../../../backend/src/proto/captureHasher.js";
@@ -165,9 +166,18 @@ async function main() {
   const challenge = Buffer.from(captureChallengeRes.body.challenge as string, "hex");
 
   const imageBytes = Buffer.from(`fake-phone-photo-${Date.now()}`, "utf8");
-  const assertion = Buffer.from("fake-phone-assertion-bytes", "utf8"); // stand-in, see docs/WORKLOG.md
   const imgHash = imageHash(imageBytes);
   const dHash = depthHash(null);
+  // Real App Attest assertion (stand-in key, real CBOR/DER-signature shape and real counter
+  // check on the server — see docs/WORKLOG.md). clientDataHash per §06:
+  // H("pupille:assert:v1" || imageHash || depthHash || challenge).
+  const assertClientDataHash = clientDataHash(imgHash, dHash, challenge);
+  const { assertionCbor: assertion } = await buildFakeAssertion({
+    appId: APP_ID,
+    clientDataHash: assertClientDataHash,
+    counter: 1, // attestation registered counter 0; the server requires strictly greater
+    credentialPrivateKey: fakeAttestation.credentialPrivateKey,
+  });
   const assertHash = assertionHash(assertion);
   const commitment2 = captureCommitment(imgHash, dHash, challenge, assertHash, profileId, profileKey.publicKeyX963);
   const postSig = profileKey.sign(postSignatureMessage(commitment2));

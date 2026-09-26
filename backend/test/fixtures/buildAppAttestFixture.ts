@@ -98,5 +98,49 @@ export async function buildAppAttestFixture(opts: { appId: string; clientDataHas
     rootCertDer: Buffer.from(rootCert.rawData),
     expectedKeyId: credId.toString("base64url"),
     expectedCounter: 0,
+    // So a later per-capture assertion can be signed by the SAME key this attestation registered.
+    credentialPrivateKey: credentialKeys.privateKey,
   };
+}
+
+/**
+ * STAND-IN FOR APPLE APP ATTEST ASSERTION — NOT A REAL ONE. Mirrors
+ * tools/fake-phone/src/fakeAppAttest.ts's buildFakeAssertion: CBOR
+ * `{signature: <DER ECDSA sig>, authenticatorData: rpIdHash(32) || flags(1) || counter(4)}`,
+ * signed with the SAME credential private key `buildAppAttestFixture` attested.
+ */
+export async function buildAssertionFixture(opts: {
+  appId: string;
+  clientDataHash: Buffer;
+  counter: number;
+  credentialPrivateKey: CryptoKey;
+}) {
+  const rpIdHash = createHash("sha256").update(opts.appId, "utf8").digest();
+  const flags = Buffer.from([0x00]);
+  const counterBuf = Buffer.alloc(4);
+  counterBuf.writeUInt32BE(opts.counter);
+  const authenticatorData = Buffer.concat([rpIdHash, flags, counterBuf]);
+
+  const signedMessage = Buffer.concat([authenticatorData, opts.clientDataHash]);
+  const rawRs = Buffer.from(
+    await webcrypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, opts.credentialPrivateKey, signedMessage)
+  );
+  const derSignature = rawRsToDer(rawRs);
+
+  return { assertionCbor: Buffer.from(cborEncode({ signature: derSignature, authenticatorData })) };
+}
+
+/** Converts a 64-byte raw r‖s ECDSA signature to DER (SEQUENCE { INTEGER r, INTEGER s }). */
+function rawRsToDer(rawRs: Buffer): Buffer {
+  if (rawRs.length !== 64) throw new Error("expected 64-byte raw r‖s signature");
+  const encodeInt = (bytes: Buffer): Buffer => {
+    let b = bytes;
+    while (b.length > 1 && b[0] === 0x00 && (b[1] & 0x80) === 0) b = b.subarray(1);
+    if (b[0] & 0x80) b = Buffer.concat([Buffer.from([0x00]), b]);
+    return Buffer.concat([Buffer.from([0x02, b.length]), b]);
+  };
+  const r = encodeInt(rawRs.subarray(0, 32));
+  const s = encodeInt(rawRs.subarray(32, 64));
+  const body = Buffer.concat([r, s]);
+  return Buffer.concat([Buffer.from([0x30, body.length]), body]);
 }

@@ -2,7 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import type pg from "pg";
 import { createApp } from "../src/app.js";
 import { makeTestPool, truncateAll } from "./testDb.js";
-import { buildAppAttestFixture } from "./fixtures/buildAppAttestFixture.js";
+import { buildAppAttestFixture, buildAssertionFixture } from "./fixtures/buildAppAttestFixture.js";
 import { buildWorldProofFixture } from "./fixtures/worldProofFixture.js";
 import { SoftwareProfileKeyForTests } from "./fixtures/softwareKey.js";
 import {
@@ -15,6 +15,7 @@ import {
   imageHash,
   depthHash,
   assertionHash,
+  clientDataHash,
   hex,
 } from "../src/proto/captureHasher.js";
 
@@ -35,20 +36,20 @@ beforeEach(async () => {
 });
 
 async function registerAttestKey(appId: string) {
-  const clientDataHash = Buffer.alloc(32, 0x11);
-  const fixture = await buildAppAttestFixture({ appId, clientDataHash });
+  const attestClientDataHash = Buffer.alloc(32, 0x11);
+  const fixture = await buildAppAttestFixture({ appId, clientDataHash: attestClientDataHash });
   const rootPem = pemFromDer(fixture.rootCertDer);
 
   // Register directly against the DB using the same verify function the route uses, since the
   // route pins Apple's real root — this test's fixture is signed by a throwaway test CA (see
   // buildAppAttestFixture's doc comment), so we insert directly here rather than fight the pin.
   const { verifyAttestation } = await import("../src/appattest/verify.js");
-  const result = await verifyAttestation(fixture.attestationObjectCbor, clientDataHash, appId, rootPem);
+  const result = await verifyAttestation(fixture.attestationObjectCbor, attestClientDataHash, appId, rootPem);
   await pool.query(
     `insert into app_attest_keys (key_id, public_key, receipt, counter) values ($1, $2, $3, $4)`,
     [result.keyId, result.publicKeyX963, result.receiptCbor, result.counter]
   );
-  return result.keyId;
+  return { attestKeyId: result.keyId, credentialPrivateKey: fixture.credentialPrivateKey };
 }
 
 function pemFromDer(der: Buffer): string {
@@ -58,7 +59,7 @@ function pemFromDer(der: Buffer): string {
 }
 
 async function createProfile(handle: string) {
-  const attestKeyId = await registerAttestKey("test.pupille");
+  const { attestKeyId, credentialPrivateKey } = await registerAttestKey("test.pupille");
   const key = new SoftwareProfileKeyForTests();
   const profileId = Buffer.from(Array.from({ length: 16 }, (_, i) => i + 1));
 
@@ -98,7 +99,7 @@ async function createProfile(handle: string) {
   expect(completeRes.status).toBe(200);
   const completeBody = await completeRes.json();
 
-  return { profileId, key, handle, sessionId: sessionResult.session_id!, completeBody };
+  return { profileId, key, handle, sessionId: sessionResult.session_id!, completeBody, credentialPrivateKey };
 }
 
 describe("full profile-creation → capture → publish → feed chain (real Postgres, fixture World proofs)", () => {
@@ -109,7 +110,7 @@ describe("full profile-creation → capture → publish → feed chain (real Pos
   });
 
   it("refuses a second profile for the same World ID nullifier", async () => {
-    const attestKeyId = await registerAttestKey("test.pupille");
+    const { attestKeyId } = await registerAttestKey("test.pupille");
     const key1 = new SoftwareProfileKeyForTests();
     const profileId1 = Buffer.alloc(16, 1);
     const startRes1 = await app.request("/v1/profiles/start", {
@@ -150,7 +151,7 @@ describe("full profile-creation → capture → publish → feed chain (real Pos
   });
 
   it("captures a photo and publishes it, then it appears verifiably in the feed", async () => {
-    const { profileId, key } = await createProfile("carol");
+    const { profileId, key, credentialPrivateKey } = await createProfile("carol");
 
     const challengeRes = await app.request("/v1/captures/challenge", {
       method: "POST",
@@ -164,9 +165,14 @@ describe("full profile-creation → capture → publish → feed chain (real Pos
     const challenge = Buffer.from(challengeHex, "hex");
 
     const imageBytes = Buffer.from("integration-test-image-bytes", "utf8");
-    const assertion = Buffer.from("fixture-assertion-bytes", "utf8");
     const imgHash = imageHash(imageBytes);
     const dHash = depthHash(null);
+    const { assertionCbor: assertion } = await buildAssertionFixture({
+      appId: "test.pupille",
+      clientDataHash: clientDataHash(imgHash, dHash, challenge),
+      counter: 1,
+      credentialPrivateKey,
+    });
     const assertHash = assertionHash(assertion);
     const commitment = captureCommitment(imgHash, dHash, challenge, assertHash, profileId, key.publicKeyX963);
     const postSig = key.sign(postSignatureMessage(commitment));
@@ -213,7 +219,7 @@ describe("full profile-creation → capture → publish → feed chain (real Pos
   });
 
   it("rejects a replayed session_nullifier on a second /human call", async () => {
-    const { profileId, key } = await createProfile("dave");
+    const { profileId, key, credentialPrivateKey } = await createProfile("dave");
     const challengeRes = await app.request("/v1/captures/challenge", {
       method: "POST",
       headers: { "x-profile-id": hex(profileId) },
@@ -224,9 +230,14 @@ describe("full profile-creation → capture → publish → feed chain (real Pos
     };
     const challenge = Buffer.from(challengeHex, "hex");
     const imageBytes = Buffer.from("replay-test-image", "utf8");
-    const assertion = Buffer.from("fixture-assertion-bytes-2", "utf8");
     const imgHash = imageHash(imageBytes);
     const dHash = depthHash(null);
+    const { assertionCbor: assertion } = await buildAssertionFixture({
+      appId: "test.pupille",
+      clientDataHash: clientDataHash(imgHash, dHash, challenge),
+      counter: 1,
+      credentialPrivateKey,
+    });
     const assertHash = assertionHash(assertion);
     const commitment = captureCommitment(imgHash, dHash, challenge, assertHash, profileId, key.publicKeyX963);
     const postSig = key.sign(postSignatureMessage(commitment));

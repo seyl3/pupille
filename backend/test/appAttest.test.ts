@@ -3,8 +3,8 @@ import { describe, it, expect } from "vitest";
 import { webcrypto, createHash } from "node:crypto";
 import { encode as cborEncode } from "cbor-x";
 import { X509CertificateGenerator, Extension } from "@peculiar/x509";
-import { verifyAttestation, AppAttestVerificationError } from "../src/appattest/verify.js";
-import { buildAppAttestFixture } from "./fixtures/buildAppAttestFixture.js";
+import { verifyAttestation, verifyAssertion, AppAttestVerificationError } from "../src/appattest/verify.js";
+import { buildAppAttestFixture, buildAssertionFixture } from "./fixtures/buildAppAttestFixture.js";
 
 const APP_ID = "test.pupille";
 
@@ -123,6 +123,95 @@ describe("App Attest verification (against a hand-built fixture, NOT a real Appl
 
     await expect(verifyAttestation(attestationObjectCbor, clientDataHash, APP_ID, rootPem)).rejects.toThrow(
       AppAttestVerificationError
+    );
+  });
+});
+
+describe("App Attest assertion verification (against a hand-built fixture, per ARCHITECTURE.md §08)", () => {
+  it("accepts a well-formed assertion signed by the attested credential key, with counter extraction", async () => {
+    const clientDataHash = Buffer.alloc(32, 0x77);
+    const attestation = await buildAppAttestFixture({ appId: APP_ID, clientDataHash: Buffer.alloc(32, 0x11) });
+    const { assertionCbor } = await buildAssertionFixture({
+      appId: APP_ID,
+      clientDataHash,
+      counter: 5,
+      credentialPrivateKey: attestation.credentialPrivateKey,
+    });
+
+    const publicKeyResult = await verifyAttestation(
+      attestation.attestationObjectCbor,
+      Buffer.alloc(32, 0x11),
+      APP_ID,
+      toPem(attestation.rootCertDer)
+    );
+
+    const result = verifyAssertion(assertionCbor, clientDataHash, APP_ID, publicKeyResult.publicKeyX963, 0);
+    expect(result.counter).toBe(5);
+  });
+
+  it("rejects an assertion whose counter does not advance past the stored counter (replay/clone)", async () => {
+    const clientDataHash = Buffer.alloc(32, 0x77);
+    const attestation = await buildAppAttestFixture({ appId: APP_ID, clientDataHash: Buffer.alloc(32, 0x11) });
+    const { assertionCbor } = await buildAssertionFixture({
+      appId: APP_ID,
+      clientDataHash,
+      counter: 3,
+      credentialPrivateKey: attestation.credentialPrivateKey,
+    });
+    const publicKeyResult = await verifyAttestation(
+      attestation.attestationObjectCbor,
+      Buffer.alloc(32, 0x11),
+      APP_ID,
+      toPem(attestation.rootCertDer)
+    );
+
+    // storedCounter == 3, same as the assertion's counter — must be strictly greater, so this
+    // must fail exactly as a replayed or cloned-key assertion would.
+    expect(() => verifyAssertion(assertionCbor, clientDataHash, APP_ID, publicKeyResult.publicKeyX963, 3)).toThrow(
+      /counter/
+    );
+  });
+
+  it("rejects an assertion signed by the wrong key (not the one the caller claims attested it)", async () => {
+    const clientDataHash = Buffer.alloc(32, 0x77);
+    const attestation = await buildAppAttestFixture({ appId: APP_ID, clientDataHash: Buffer.alloc(32, 0x11) });
+    const otherAttestation = await buildAppAttestFixture({ appId: APP_ID, clientDataHash: Buffer.alloc(32, 0x22) });
+    const { assertionCbor } = await buildAssertionFixture({
+      appId: APP_ID,
+      clientDataHash,
+      counter: 1,
+      credentialPrivateKey: otherAttestation.credentialPrivateKey, // wrong key
+    });
+    const publicKeyResult = await verifyAttestation(
+      attestation.attestationObjectCbor,
+      Buffer.alloc(32, 0x11),
+      APP_ID,
+      toPem(attestation.rootCertDer)
+    );
+
+    expect(() => verifyAssertion(assertionCbor, clientDataHash, APP_ID, publicKeyResult.publicKeyX963, 0)).toThrow(
+      /signature/
+    );
+  });
+
+  it("rejects an assertion whose clientDataHash does not match what the server recomputed", async () => {
+    const attestation = await buildAppAttestFixture({ appId: APP_ID, clientDataHash: Buffer.alloc(32, 0x11) });
+    const { assertionCbor } = await buildAssertionFixture({
+      appId: APP_ID,
+      clientDataHash: Buffer.alloc(32, 0x77),
+      counter: 1,
+      credentialPrivateKey: attestation.credentialPrivateKey,
+    });
+    const publicKeyResult = await verifyAttestation(
+      attestation.attestationObjectCbor,
+      Buffer.alloc(32, 0x11),
+      APP_ID,
+      toPem(attestation.rootCertDer)
+    );
+
+    const wrongClientDataHash = Buffer.alloc(32, 0x99);
+    expect(() => verifyAssertion(assertionCbor, wrongClientDataHash, APP_ID, publicKeyResult.publicKeyX963, 0)).toThrow(
+      /signature/
     );
   });
 });

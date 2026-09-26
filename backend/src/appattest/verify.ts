@@ -1,6 +1,6 @@
 import "reflect-metadata"; // required by @peculiar/x509's DI container
 import { decode as cborDecode } from "cbor-x";
-import { createHash } from "node:crypto";
+import { createHash, createPublicKey, verify as cryptoVerify } from "node:crypto";
 import { X509Certificate, X509ChainBuilder } from "@peculiar/x509";
 import * as asn1js from "asn1js";
 
@@ -169,6 +169,88 @@ function parseAppleNonceExtension(extensionValue: Buffer): Buffer {
     throw new AppAttestVerificationError("nonce extension [1] tag does not contain an OCTET STRING", "nonce_extension_malformed");
   }
   return Buffer.from(octetString.valueBlock.valueHexView);
+}
+
+export interface AssertionResult {
+  authenticatorData: Buffer;
+  counter: number;
+}
+
+interface AssertionObject {
+  signature: Buffer;
+  authenticatorData: Buffer;
+}
+
+/**
+ * Verifies a per-capture App Attest assertion (`DCAppAttestService.generateAssertion`), per
+ * docs/ARCHITECTURE.md §08's "Assertion check": signature over
+ * `SHA256(authenticatorData || clientDataHash)` under the stored App Attest public key,
+ * `rpIdHash == SHA256(appId)`, and counter strictly greater than the stored counter.
+ *
+ * Assertion format per https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server
+ * ("Verify the assertion"): CBOR map `{signature: <DER ECDSA sig>, authenticatorData: <bytes>}`.
+ * Unlike the profile key's raw r‖s signatures, App Attest assertion signatures are standard DER
+ * (Node's default `dsaEncoding`), which is what `DCAppAttestService` and CryptoKit's ASN.1
+ * `derRepresentation` both produce for assertions.
+ *
+ * IMPORTANT: exercised only against a hand-built fixture in this session (no physical iPhone) —
+ * see docs/WORKLOG.md.
+ */
+export function verifyAssertion(
+  assertionCbor: Buffer,
+  clientDataHash: Buffer,
+  expectedAppId: string,
+  storedPublicKeyX963: Buffer,
+  storedCounter: number
+): AssertionResult {
+  const decoded = cborDecode(assertionCbor) as AssertionObject;
+  if (!decoded.signature || !decoded.authenticatorData) {
+    throw new AppAttestVerificationError("assertion missing signature or authenticatorData", "assertion_malformed");
+  }
+
+  const { rpIdHash, counter } = parseAssertionAuthData(decoded.authenticatorData);
+  const expectedRpIdHash = createHash("sha256").update(expectedAppId, "utf8").digest();
+  if (!rpIdHash.equals(expectedRpIdHash)) {
+    throw new AppAttestVerificationError("assertion rpIdHash does not match expected appId", "rp_id_mismatch");
+  }
+
+  if (counter <= storedCounter) {
+    throw new AppAttestVerificationError(
+      `assertion counter ${counter} is not greater than stored counter ${storedCounter} (possible replay/clone)`,
+      "counter_not_advancing"
+    );
+  }
+
+  const signedMessage = Buffer.concat([decoded.authenticatorData, clientDataHash]);
+  const keyObject = x963ToNodePublicKey(storedPublicKeyX963);
+  const valid = cryptoVerify("sha256", signedMessage, keyObject, decoded.signature);
+  if (!valid) {
+    throw new AppAttestVerificationError("assertion signature does not verify under the stored App Attest key", "assertion_signature_invalid");
+  }
+
+  return { authenticatorData: decoded.authenticatorData, counter };
+}
+
+/** authenticatorData for an assertion: rpIdHash(32) || flags(1) || counter(4). No attested credential data. */
+function parseAssertionAuthData(authData: Buffer) {
+  if (authData.length < 37) {
+    throw new AppAttestVerificationError("assertion authenticatorData too short", "assertion_malformed");
+  }
+  const rpIdHash = authData.subarray(0, 32);
+  const counter = authData.readUInt32BE(33);
+  return { rpIdHash, counter };
+}
+
+function x963ToNodePublicKey(publicKeyX963: Buffer) {
+  if (publicKeyX963.length !== 65 || publicKeyX963[0] !== 0x04) {
+    throw new AppAttestVerificationError("expected 65-byte uncompressed X9.63 public key", "bad_public_key");
+  }
+  const x = publicKeyX963.subarray(1, 33);
+  const y = publicKeyX963.subarray(33, 65);
+  return createPublicKey({
+    key: { kty: "EC", crv: "P-256", x: x.toString("base64url"), y: y.toString("base64url") },
+    format: "jwk",
+  });
 }
 
 function pemToDer(pem: string): Buffer {

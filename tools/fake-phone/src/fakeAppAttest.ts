@@ -95,7 +95,64 @@ export async function buildFakeAttestation(opts: { appId: string; clientDataHash
   return {
     attestationObjectCbor: Buffer.from(cborEncode(attestationObject)),
     rootCertDer: Buffer.from(rootCert.rawData),
+    // The credential (App Attest key) private key, so a later per-capture assertion can be signed
+    // by the SAME key this attestation registered — a real device signs assertions with the key
+    // it attested, and the backend's counter/signature check is keyed on that same identity.
+    credentialPrivateKey: credentialKeys.privateKey,
   };
+}
+
+/**
+ * STAND-IN FOR APPLE APP ATTEST ASSERTION — NOT A REAL ONE. Builds a CBOR structure shaped like
+ * `DCAppAttestService.generateAssertion`'s real output (per
+ * https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server
+ * "Verify the assertion"): `{signature: <DER ECDSA sig>, authenticatorData: rpIdHash(32) || flags(1)
+ * || counter(4)}`, signed with the SAME credential private key `buildFakeAttestation` attested —
+ * mirroring backend/test/fixtures/buildAppAttestFixture.ts's assertion helper.
+ */
+export async function buildFakeAssertion(opts: {
+  appId: string;
+  clientDataHash: Buffer;
+  counter: number;
+  credentialPrivateKey: CryptoKey;
+}) {
+  const rpIdHash = createHash("sha256").update(opts.appId, "utf8").digest();
+  const flags = Buffer.from([0x00]);
+  const counterBuf = Buffer.alloc(4);
+  counterBuf.writeUInt32BE(opts.counter);
+  const authenticatorData = Buffer.concat([rpIdHash, flags, counterBuf]);
+
+  const signedMessage = Buffer.concat([authenticatorData, opts.clientDataHash]);
+  const derSignature = Buffer.from(
+    await webcrypto.subtle.sign(
+      { name: "ECDSA", hash: "SHA-256" },
+      opts.credentialPrivateKey,
+      signedMessage
+    )
+  );
+  // WebCrypto's ECDSA.sign returns raw r‖s (IEEE P1363), but real App Attest assertions carry a
+  // DER signature (per Apple's docs and backend/src/appattest/verify.ts's verifyAssertion, which
+  // uses Node's default DER dsaEncoding) — convert so this fixture matches the real wire format.
+  const derFromRawRs = rawRsToDer(derSignature);
+
+  return {
+    assertionCbor: Buffer.from(cborEncode({ signature: derFromRawRs, authenticatorData })),
+  };
+}
+
+/** Converts a 64-byte raw r‖s ECDSA signature to DER (SEQUENCE { INTEGER r, INTEGER s }). */
+function rawRsToDer(rawRs: Buffer): Buffer {
+  if (rawRs.length !== 64) throw new Error("expected 64-byte raw r‖s signature");
+  const encodeInt = (bytes: Buffer): Buffer => {
+    let b = bytes;
+    while (b.length > 1 && b[0] === 0x00 && (b[1] & 0x80) === 0) b = b.subarray(1);
+    if (b[0] & 0x80) b = Buffer.concat([Buffer.from([0x00]), b]);
+    return Buffer.concat([Buffer.from([0x02, b.length]), b]);
+  };
+  const r = encodeInt(rawRs.subarray(0, 32));
+  const s = encodeInt(rawRs.subarray(32, 64));
+  const body = Buffer.concat([r, s]);
+  return Buffer.concat([Buffer.from([0x30, body.length]), body]);
 }
 
 export function derToPem(der: Buffer): string {

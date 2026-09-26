@@ -65,10 +65,10 @@ reachable from this machine — do not mock the database.
       Attest root CA chain check, nonce/appId/AAGUID check, using cbor-x + @peculiar/x509.
       Nonce-extension check is a real DER structural parse (via asn1js) of the documented
       `SEQUENCE { [1] EXPLICIT OCTET STRING }` shape, proven by a test that a substring
-      check could not pass — see docs/WORKLOG.md "Resolved after initial handoff". App
-      Attest *assertion* verification (as opposed to the one-time attestKey attestation)
-      is not wired into /captures/:id/device — see docs/WORKLOG.md Untested (this is real
-      remaining backend work, not a hardware wall).
+      check could not pass. App Attest *assertion* verification is also wired into
+      /captures/:id/device: real DER-signature check over the stored public key plus a
+      strictly-advancing counter check, per §08's "Assertion check" — see
+      docs/WORKLOG.md "Resolved after initial handoff" for both.
 - [x] Because there is no physical iPhone or World App here, the World API and App
       Attest calls are tested against **hand-built fixtures** matching the documented
       schema (backend/test/fixtures/buildAppAttestFixture.ts,
@@ -76,7 +76,7 @@ reachable from this machine — do not mock the database.
       World client still runs the real signal_hash comparison. The real HTTP World
       client is implemented but never exercised against World's live API — logged in
       docs/WORKLOG.md Untested.
-- [x] `npm test` in `backend/` exits 0 covering the above (23/23 tests).
+- [x] `npm test` in `backend/` exits 0 covering the above (27/27 tests).
 
 ## 5C — iOS app (`ios/Pupille`)
 

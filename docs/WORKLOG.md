@@ -10,7 +10,7 @@ cannot provide, and is listed under HANDOFF below rather than attempted.
 **Proof commands, all exit 0 on this machine:**
 
 ```
-cd backend && npm test                      # 23/23 tests, real Postgres
+cd backend && npm test                      # 27/27 tests, real Postgres
 cd ios/PupilleCore && swift test             # 9/9 tests
 cd tools/fake-phone && DATABASE_URL=... ./run.sh   # full E2E chain over real HTTP
 ```
@@ -109,21 +109,13 @@ What's a stand-in, always clearly labeled in the source as such:
   every §06 test vector plus an additional non-hex-signal case. This is a
   legitimate reimplementation of a fully-documented, standard algorithm
   (Keccak-256 + the documented `>> 8` truncation), not a guess.
-- **Real Apple App Attest attestation objects**: never obtainable without a
-  physical iPhone. `verifyAttestation`'s CBOR/COSE parsing and X.509 chain
-  logic is real and tested against a hand-built fixture (proves internal
-  correctness), but has never parsed a genuine Apple-issued attestation
-  object. Two specific gaps, both called out in
-  `backend/src/appattest/verify.ts`'s doc comments:
-  - App Attest **assertion** verification (as opposed to the one-time
-    `attestKey` attestation checked at `/v1/attest/register`) is not wired
-    into `/v1/captures/:id/device` — that endpoint verifies `postSignature`
-    and the full commitment chain (the check that actually binds authorship),
-    and stores the assertion bytes, but does not independently verify the
-    assertion's COSE signature against the stored App Attest public key or
-    check the monotonic counter. This is real backend work, not a hardware
-    blocker — it just wasn't reached given the session's time budget. Tracked
-    as **Untested** below, not HANDOFF.
+- **Real Apple App Attest attestation objects and assertions**: never
+  obtainable without a physical iPhone. `verifyAttestation` and
+  `verifyAssertion`'s CBOR/COSE parsing, X.509 chain logic, and DER-signature
+  verification are real and tested against hand-built fixtures (proves
+  internal correctness), but have never parsed genuine Apple-issued output.
+  See "Resolved after initial handoff" below for what assertion verification
+  now covers.
 - **World's live verify API** (`/api/v4/verify/{rp_id}`): no sandbox/staging
   credentials available in this environment. `HttpWorldVerifyClient` is
   implemented per ARCHITECTURE.md §03/§12's documented shape but has never
@@ -145,12 +137,6 @@ What's a stand-in, always clearly labeled in the source as such:
 
 ## Untested (implemented, but not exercised against real external state)
 
-- **App Attest assertion verification on `/captures/:id/device`** — see
-  HANDOFF above; this is real, reachable backend work that simply wasn't
-  completed this session, not a hardware wall. `postSignature` and the
-  commitment chain ARE fully verified on that endpoint, which is the check
-  that actually binds authorship (§08's own ordering lists device checks
-  before the World proof for exactly this reason).
 - **`HttpWorldVerifyClient`** (the real, non-fixture World API client) — see
   HANDOFF above.
 - **`npm audit`** reports 5 vulnerabilities (3 moderate, 1 high, 1 critical),
@@ -161,6 +147,30 @@ What's a stand-in, always clearly labeled in the source as such:
 
 ## Resolved after initial handoff
 
+- **App Attest assertion verification is now wired into
+  `/v1/captures/:id/device`.** Previously this endpoint verified
+  `postSignature` and the commitment chain (the check that actually binds
+  authorship) but stored the assertion bytes without independently verifying
+  them. Now `verifyAssertion` (`backend/src/appattest/verify.ts`) parses the
+  real assertion CBOR shape (`{signature: <DER ECDSA sig>, authenticatorData}`
+  per Apple's documented format), checks `rpIdHash == SHA256(appId)`, verifies
+  the DER signature over `SHA256(authenticatorData || clientDataHash)` under
+  the App Attest public key stored at `/attest/register` (not a
+  client-supplied key), and requires the counter to be strictly greater than
+  the stored one (rejecting replay/clone) — exactly docs/ARCHITECTURE.md §08's
+  "Assertion check" line. The stored counter is advanced after a successful
+  check. `tools/fake-phone` and the backend's integration/fixture tests were
+  updated to build and sign real assertions (via the same credential key each
+  fixture's attestation used) instead of arbitrary placeholder bytes, so the
+  full path — attest once, then verify a per-capture assertion signed by that
+  same attested key — is now exercised, not just internally self-consistent
+  pieces. Four new unit tests in `backend/test/appAttest.test.ts` prove
+  `verifyAssertion` accepts a valid assertion and rejects: a non-advancing
+  counter, a signature from the wrong key, and a mismatched clientDataHash.
+  Still never exercised against a genuine Apple-issued assertion (no physical
+  iPhone) — that residual gap is listed under HANDOFF above. `npm test`:
+  27/27; `tools/fake-phone/run.sh`: still exit 0 end to end with the real
+  assertion path now in the loop.
 - **`tools/fake-phone/run.sh` leaked its backend process on every run.** The
   `trap 'kill $BACKEND_PID' EXIT` only killed `npm exec`'s own PID, not the
   `tsx`/`node` subprocesses `npm exec` spawns underneath it, so every
