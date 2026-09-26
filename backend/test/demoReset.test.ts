@@ -35,7 +35,12 @@ describe("staging demo reset", () => {
     const profileId = Buffer.alloc(16, 7);
     const key = new SoftwareProfileKeyForTests();
     await pool.query(
-      "insert into profiles (id, nullifier, handle, credential) values ($1, 123, 'demo_user', 'proof_of_human')",
+      `insert into app_attest_keys (key_id, public_key, receipt, counter)
+       values ('device-key', $1, $2, 9)`, [Buffer.alloc(65, 1), Buffer.from("receipt")]
+    );
+    await pool.query(
+      `insert into profiles (id, nullifier, handle, credential, app_attest_key_id)
+       values ($1, 123, 'demo_user', 'proof_of_human', 'device-key')`,
       [profileId]
     );
     await pool.query(
@@ -62,6 +67,9 @@ describe("staging demo reset", () => {
     for (const table of ["profiles", "profile_keys", "world_session_nullifiers", "demo_reset_challenges"]) {
       expect((await pool.query(`select count(*)::int as count from ${table}`)).rows[0].count).toBe(0);
     }
+    expect((await pool.query(
+      "select key_id, counter::int as counter from app_attest_keys"
+    )).rows).toEqual([{ key_id: "device-key", counter: 9 }]);
     expect((await request("/v1/dev/reset", {
       challengeId, signature: key.sign(message).toString("hex"),
     })).status).toBe(400);

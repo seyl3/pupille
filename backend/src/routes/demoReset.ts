@@ -60,12 +60,15 @@ export function demoResetRoutes(pool: pg.Pool) {
         await client.query("rollback");
         return c.json({ error: "reset_signature_invalid" }, 403);
       }
-      // Keep schema, issuer key, and RP config. Clear every local demo identity,
-      // post, reaction, registration, and pending challenge in one transaction.
+      // Keep schema, issuer key, RP config, and App Attest registrations. The
+      // attested key belongs to this installed app instance and is intentionally
+      // reused after a demo reset; deleting it forces the iPhone to ask Apple to
+      // attest another key and can strand the client with stale device state.
+      // Clear profiles, posts, reactions, World nullifiers, and pending challenges.
       await client.query(`truncate table
         post_reactions, reaction_challenges, posts, capture_challenges,
         profile_avatar_challenges, demo_reset_challenges, profile_keys,
-        profiles, profile_sessions, world_session_nullifiers, app_attest_keys
+        profiles, profile_sessions, world_session_nullifiers
         restart identity cascade`);
       await client.query("commit");
       return c.json({ reset: true });
