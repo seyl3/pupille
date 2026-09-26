@@ -24,7 +24,8 @@ struct CameraCheckView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .accessibilityLabel("Captured photo preview")
             } else {
-                CameraPreview(session: camera.session).ignoresSafeArea(edges: .bottom)
+                CameraPreview(session: camera.session, onFocus: { camera.focus(at: $0) })
+                    .ignoresSafeArea(edges: .bottom)
             }
             VStack(spacing: 0) {
                 topBar
@@ -78,7 +79,7 @@ struct CameraCheckView: View {
             HStack(spacing: 8) {
                 ForEach(camera.availableZooms, id: \.self) { factor in
                     Button { camera.setZoom(factor) } label: {
-                        Text(factor == 1 ? "1×" : "2×")
+                        Text(factor == 0.5 ? "0.5×" : factor == 1 ? "1×" : "2×")
                             .font(.system(size: 14, weight: .bold, design: .rounded))
                             .foregroundStyle(camera.zoom == factor ? .black : .white)
                             .frame(width: 46, height: 46)
@@ -136,18 +137,47 @@ struct CameraCheckView: View {
 
 private struct CameraPreview: UIViewRepresentable {
     let session: AVCaptureSession
+    let onFocus: (CGPoint) -> Void
     func makeUIView(context: Context) -> PreviewView {
         let view = PreviewView()
         view.previewLayer.session = session
         view.previewLayer.videoGravity = .resizeAspectFill
+        let recognizer = UITapGestureRecognizer(target: context.coordinator, action: #selector(Coordinator.tap(_:)))
+        view.addGestureRecognizer(recognizer)
         return view
     }
     func updateUIView(_ view: PreviewView, context: Context) {}
+    func makeCoordinator() -> Coordinator { Coordinator(onFocus: onFocus) }
+
+    final class Coordinator: NSObject {
+        let onFocus: (CGPoint) -> Void
+        init(onFocus: @escaping (CGPoint) -> Void) { self.onFocus = onFocus }
+        @objc func tap(_ recognizer: UITapGestureRecognizer) {
+            guard let view = recognizer.view as? PreviewView else { return }
+            let point = recognizer.location(in: view)
+            view.showFocus(at: point)
+            onFocus(view.previewLayer.captureDevicePointConverted(fromLayerPoint: point))
+        }
+    }
 }
 
 private final class PreviewView: UIView {
     override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
     var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
+    private let focusBox = UIView()
+
+    func showFocus(at point: CGPoint) {
+        focusBox.removeFromSuperview()
+        focusBox.frame = CGRect(x: point.x - 36, y: point.y - 36, width: 72, height: 72)
+        focusBox.layer.borderWidth = 2
+        focusBox.layer.borderColor = UIColor.systemYellow.cgColor
+        focusBox.layer.cornerRadius = 8
+        focusBox.alpha = 1
+        focusBox.transform = CGAffineTransform(scaleX: 1.2, y: 1.2)
+        addSubview(focusBox)
+        UIView.animate(withDuration: 0.16) { self.focusBox.transform = .identity }
+        UIView.animate(withDuration: 0.4, delay: 0.5) { self.focusBox.alpha = 0 }
+    }
 }
 
 @MainActor
@@ -164,8 +194,16 @@ private final class CameraCheckSession: NSObject, ObservableObject, AVCapturePho
     @Published var flashMode: AVCaptureDevice.FlashMode = .auto
     @Published var hasFlash = false
     @Published var zoom: CGFloat = 1
+    @Published var supportsUltraWide = false
 
-    var availableZooms: [CGFloat] { position == .back ? [1, 2] : [1] }
+    var availableZooms: [CGFloat] {
+        position == .back ? (supportsUltraWide ? [0.5, 1, 2] : [1, 2]) : [1]
+    }
+    private var ultraWide: AVCaptureDevice? {
+        AVCaptureDevice.DiscoverySession(
+            deviceTypes: [.builtInUltraWideCamera], mediaType: .video, position: .back
+        ).devices.first
+    }
     var flashSymbol: String {
         switch flashMode {
         case .on: "bolt.fill"
@@ -209,6 +247,7 @@ private final class CameraCheckSession: NSObject, ObservableObject, AVCapturePho
             session.sessionPreset = .photo
             session.commitConfiguration()
             hasFlash = device.hasFlash
+            supportsUltraWide = ultraWide != nil
             let captureSession = session
             queue.async {
                 captureSession.startRunning()
@@ -229,9 +268,40 @@ private final class CameraCheckSession: NSObject, ObservableObject, AVCapturePho
         UISelectionFeedbackGenerator().selectionChanged()
     }
 
+    func focus(at point: CGPoint) {
+        guard isReady, let device = (session.inputs.first as? AVCaptureDeviceInput)?.device else { return }
+        queue.async {
+            do {
+                try device.lockForConfiguration()
+                if device.isFocusPointOfInterestSupported {
+                    device.focusPointOfInterest = point
+                    if device.isFocusModeSupported(.autoFocus) { device.focusMode = .autoFocus }
+                }
+                if device.isExposurePointOfInterestSupported {
+                    device.exposurePointOfInterest = point
+                    if device.isExposureModeSupported(.continuousAutoExposure) {
+                        device.exposureMode = .continuousAutoExposure
+                    }
+                }
+                device.unlockForConfiguration()
+            } catch {
+                DispatchQueue.main.async { self.error = error.localizedDescription }
+            }
+        }
+    }
+
     func setZoom(_ factor: CGFloat) {
-        guard isReady, position == .back,
-              let device = (session.inputs.first as? AVCaptureDeviceInput)?.device else { return }
+        guard isReady, position == .back else { return }
+        if factor == 0.5, let ultraWide {
+            switchCamera(to: ultraWide, targetPosition: .back, targetZoom: 0.5)
+            return
+        }
+        guard let device = (session.inputs.first as? AVCaptureDeviceInput)?.device else { return }
+        if device.deviceType == .builtInUltraWideCamera,
+           let wide = AVCaptureDevice.default(.builtInWideAngleCamera, for: .video, position: .back) {
+            switchCamera(to: wide, targetPosition: .back, targetZoom: factor)
+            return
+        }
         let selected = min(max(factor, device.minAvailableVideoZoomFactor), device.maxAvailableVideoZoomFactor)
         queue.async {
             do {
@@ -252,7 +322,13 @@ private final class CameraCheckSession: NSObject, ObservableObject, AVCapturePho
             error = "That camera is unavailable"
             return
         }
+        switchCamera(to: nextDevice, targetPosition: nextPosition, targetZoom: 1)
+    }
+
+    private func switchCamera(to nextDevice: AVCaptureDevice,
+                              targetPosition: AVCaptureDevice.Position, targetZoom: CGFloat) {
         isReady = false
+        error = nil
         let captureSession = session
         queue.async {
             do {
@@ -263,12 +339,20 @@ private final class CameraCheckSession: NSObject, ObservableObject, AVCapturePho
                 if captureSession.canAddInput(nextInput) {
                     captureSession.addInput(nextInput)
                     captureSession.commitConfiguration()
+                    let hardwareZoom: CGFloat = targetZoom == 0.5 ? 1 : targetZoom
+                    do {
+                        try nextDevice.lockForConfiguration()
+                        nextDevice.videoZoomFactor = min(max(hardwareZoom,
+                            nextDevice.minAvailableVideoZoomFactor), nextDevice.maxAvailableVideoZoomFactor)
+                        nextDevice.unlockForConfiguration()
+                    } catch {
+                        DispatchQueue.main.async { self.error = error.localizedDescription }
+                    }
                     DispatchQueue.main.async {
-                        self.position = nextPosition
+                        self.position = targetPosition
                         self.hasFlash = nextDevice.hasFlash
-                        self.zoom = 1
+                        self.zoom = targetZoom
                         self.isReady = true
-                        self.error = nil
                     }
                 } else {
                     if let previousInput { captureSession.addInput(previousInput) }

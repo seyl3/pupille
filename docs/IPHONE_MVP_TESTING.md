@@ -14,8 +14,10 @@ The script starts the local PostgreSQL 17 instance, applies the schema, builds t
 
 1. Open Pupille. The first screen is **Continue with World ID**. Choose a 3–20 character handle; the proof signal binds that handle to the iPhone's persistent Secure Enclave public key.
 2. Tap **Verify and create profile**. Approve the profile signature with Face ID. The backend checks that signature and a fresh Apple App Attest assertion **before** the one-time World proof is requested. Then tap **Open World Simulator**, select a fresh Human staging identity, and approve. Switch back to Pupille. The backend checks the full IDKit result with World and stores the profile. A simulator identity already used for this action may be rejected as a duplicate.
-3. Open **Capture**. Use the front/rear switch, flash control (rear camera), and 1×/2× zoom, then press the circular shutter. Review the image and choose **Use photo** or **Retake**. Optionally add a caption, then tap **Publish verified capture**. The app sends exact camera bytes, a fresh App Attest assertion, and a Secure Enclave signature over the capture commitment. The backend checks them before saving the post.
-4. Open **Feed** and pull down to refresh. The app downloads the image bytes and checks the image hash, issuer signatures, author binding, capture commitment, author signature, and caption hash. A green badge means those checks passed. The label shows whether the author used a staging or production Human proof at signup.
+3. Open **Capture**. Use the front/rear switch, flash control (rear camera), and 0.5×/1×/2× zoom when the lens is available, then press the circular shutter. Review the image and choose **Use photo** or **Retake**. Optionally add a caption, then tap **Publish verified capture**. The app sends exact camera bytes, a fresh App Attest assertion, and a Secure Enclave signature over the capture commitment. The backend checks them before saving the post.
+4. Open **Feed** and pull down to refresh. Photos retain their full aspect ratio. The app downloads the image bytes and checks the image hash, issuer signatures, author binding, capture commitment, author signature, and caption hash. A green badge means those checks passed. The label shows whether the author used a staging or production Human proof at signup.
+5. Open **Profile**, tap the avatar, and choose a photo. Face ID authorizes a one-time profile-key signature for the upload. The avatar is a chosen profile image, not a verified Pupille camera capture; relaunch and check that it persists. The profile shows your post count and your published photo grid.
+6. After publishing, the Capture draft clears and a short success animation appears. On the Feed, tap a photo's green check or red X to see each verification result. Try the four reactions (🤓, ❤️, 🍆, 🇯🇵); each profile has one reaction per post and can change it.
 
 ## What the badge means
 
@@ -25,4 +27,4 @@ Production uses the same app and RP with `PUPILLE_WORLD_ENVIRONMENT=production`,
 
 ## Build and install again
 
-Open `ios/Pupille/Pupille.xcodeproj`, select the connected iPhone 14 Pro (`gateway`), and press **⌘R**. The app name is `Pupille` in `Info.plist`, and the Home Screen icon is `Assets.xcassets/AppIcon.appiconset/pupille-logo.png`.
+Open `ios/Pupille/Pupille.xcodeproj`, select the connected iPhone 14 Pro (`gateway`), and press **⌘R**. The app name is `Pupille` in `Info.plist`. The Home Screen icon uses `pupille-logo.png`; in-app decorative marks use `pupille-icon.svg`.

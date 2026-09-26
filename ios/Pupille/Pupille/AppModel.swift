@@ -14,8 +14,30 @@ struct FeedPost: Decodable, Identifiable {
     let profileCert: Certificate
     let captureCert: Certificate
     let createdAt: String
-    struct Author: Decodable { let handle: String; let profileId: String; let publicKey: String }
+    let reactions: ReactionCounts
+    let myReaction: String?
+    struct Author: Decodable {
+        let handle: String; let profileId: String; let publicKey: String; let avatarUrl: String?
+    }
     struct Certificate: Decodable { let certB64: String; let sigB64: String }
+}
+
+struct ReactionCounts: Decodable {
+    let nerd: Int; let heart: Int; let aubergine: Int; let japan: Int
+    subscript(_ kind: String) -> Int {
+        switch kind {
+        case "nerd": nerd
+        case "heart": heart
+        case "aubergine": aubergine
+        default: japan
+        }
+    }
+}
+
+struct VerificationCheck: Identifiable {
+    let title: String
+    let passed: Bool
+    var id: String { title }
 }
 
 private struct ProfileCertificate: Decodable {
@@ -48,6 +70,13 @@ private struct CompleteSignup: Decodable { let handle: String; let profileId: St
 private struct DevicePreflight: Decodable { let deviceVerified: Bool }
 private struct CaptureChallenge: Decodable { let challengeId: String; let challenge: String }
 private struct PublishResponse: Decodable { let postId: String }
+private struct AvatarChallenge: Decodable { let challengeId: String; let challenge: String }
+private struct AvatarUploaded: Decodable { let avatarUrl: String }
+private struct ReactionChallenge: Decodable { let challengeId: String; let challenge: String }
+private struct ReactionResult: Decodable { let reactions: ReactionCounts; let myReaction: String }
+struct ProfileSummary: Decodable {
+    let handle: String; let avatarUrl: String?; let postCount: Int; let joinedAt: String
+}
 private struct DeviceAccepted: Decodable { let worldSignal: String }
 private struct APIError: Decodable { let error: String }
 
@@ -56,7 +85,13 @@ final class AppModel: ObservableObject {
     @Published var handle: String = UserDefaults.standard.string(forKey: "profileHandle") ?? ""
     @Published var posts: [FeedPost] = []
     @Published var imageBytes: [String: Data] = [:]
+    @Published var avatarBytes: [String: Data] = [:]
+    @Published var profile: ProfileSummary?
     @Published var verifiedPostIDs: Set<String> = []
+    @Published var verificationChecks: [String: [VerificationCheck]] = [:]
+    @Published var reactionCounts: [String: ReactionCounts] = [:]
+    @Published var myReactions: [String: String] = [:]
+    @Published var reactingPostIDs: Set<String> = []
     @Published var postEnvironments: [String: String] = [:]
     @Published var status = ""
     @Published var isBusy = false
@@ -77,67 +112,170 @@ final class AppModel: ObservableObject {
 
     func loadFeed() async {
         do {
-            posts = try await get("/v1/feed")
+            let profileID = UserDefaults.standard.string(forKey: "profileID")
+            posts = try await get("/v1/feed", headers: profileID.map { ["x-profile-id": $0] } ?? [:])
             verifiedPostIDs = []
+            verificationChecks = [:]
             postEnvironments = [:]
+            reactionCounts = Dictionary(uniqueKeysWithValues: posts.map { ($0.id, $0.reactions) })
+            myReactions = Dictionary(uniqueKeysWithValues: posts.compactMap {
+                post in post.myReaction.map { (post.id, $0) }
+            })
             for post in posts {
                 let (image, response) = try await URLSession.shared.data(from: url(post.imageUrl))
                 guard (response as? HTTPURLResponse)?.statusCode == 200 else { continue }
                 imageBytes[post.id] = image
-                if verify(post: post, image: image) {
+                let checks = audit(post: post, image: image)
+                verificationChecks[post.id] = checks
+                if checks.allSatisfy(\.passed) {
                     verifiedPostIDs.insert(post.id)
                     if let certBytes = Data(base64Encoded: post.profileCert.certB64),
                        let profile = try? JSONDecoder().decode(ProfileCertificate.self, from: certBytes) {
                         postEnvironments[post.id] = profile.environment ?? "unknown"
                     }
                 }
+                if let avatarUrl = post.author.avatarUrl, avatarBytes[post.author.handle] == nil,
+                   let (avatar, response) = try? await URLSession.shared.data(from: url(avatarUrl)),
+                   (response as? HTTPURLResponse)?.statusCode == 200 {
+                    avatarBytes[post.author.handle] = avatar
+                }
             }
         }
         catch { status = "Feed: \(error.localizedDescription)" }
     }
 
-    private func verify(post: FeedPost, image: Data) -> Bool {
-        guard let issuerData = Data(hexString: issuerPublicKeyHex),
-            let issuer = try? Curve25519.Signing.PublicKey(rawRepresentation: issuerData),
-            let profileBytes = Data(base64Encoded: post.profileCert.certB64),
-            let profileSignature = Data(base64Encoded: post.profileCert.sigB64),
-            issuer.isValidSignature(profileSignature, for: profileBytes),
-            let captureBytes = Data(base64Encoded: post.captureCert.certB64),
-            let captureSignature = Data(base64Encoded: post.captureCert.sigB64),
-            issuer.isValidSignature(captureSignature, for: captureBytes),
-            let profile = try? JSONDecoder().decode(ProfileCertificate.self, from: profileBytes),
-            let capture = try? JSONDecoder().decode(CaptureCertificate.self, from: captureBytes),
-            profile.credential == "proof_of_human",
-            ["staging", "production"].contains(profile.environment ?? ""),
-            profile.handle == post.author.handle,
-            profile.profileId == post.author.profileId,
-            profile.publicKey == post.author.publicKey,
-            capture.profileId == profile.profileId,
-            capture.keyVersion == profile.keyVersion,
-            Data(SHA256.hash(data: image)).hex == capture.imageSha256,
-            Data(repeating: 0, count: 32).hex == capture.depthSha256,
-            let profileID = Data(hexString: profile.profileId),
-            let publicKeyBytes = Data(base64Encoded: profile.publicKey),
-            let challenge = Data(hexString: capture.challenge),
-            let assertionHash = Data(hexString: capture.assertionSha256),
-            let captureCommitment = Data(hexString: capture.captureCommitment),
-            let postSignature = Data(base64Encoded: post.postSignature),
-            let publicKey = try? P256.Signing.PublicKey(x963Representation: publicKeyBytes),
-            let signature = try? P256.Signing.ECDSASignature(rawRepresentation: postSignature)
-        else { return false }
-        let computed = Data(SHA256.hash(data: Data("pupille:capture:v1".utf8)
-            + Data(SHA256.hash(data: image)) + Data(repeating: 0, count: 32)
-            + challenge + assertionHash + profileID + publicKeyBytes))
-        guard computed == captureCommitment else { return false }
-        let signed = Data("pupille:post-sig:v1".utf8) + computed
-        guard publicKey.isValidSignature(signature, for: signed) else { return false }
-        if let caption = post.caption {
-            guard Data(SHA256.hash(data: Data(caption.utf8))).hex == capture.captionSha256 else { return false }
-        }
-        return true
+    func react(to postId: String, kind: String) async {
+        guard !reactingPostIDs.contains(postId),
+              ["nerd", "heart", "aubergine", "japan"].contains(kind) else { return }
+        reactingPostIDs.insert(postId)
+        defer { reactingPostIDs.remove(postId) }
+        do {
+            guard let profileHex = UserDefaults.standard.string(forKey: "profileID"),
+                  let attestKeyID = UserDefaults.standard.string(forKey: "registeredAttestKeyID") else {
+                throw AppError.server("Create your profile first")
+            }
+            let challenge: ReactionChallenge = try await post("/v1/posts/\(postId)/reaction/challenge", [
+                "profileId": profileHex,
+            ])
+            guard let nonce = Data(hexString: challenge.challenge), nonce.count == 32 else {
+                throw AppError.invalidResponse
+            }
+            let hash = Data(SHA256.hash(data: Data("pupille:reaction:v1".utf8)
+                + Data(postId.utf8) + Data(kind.utf8) + nonce))
+            let assertion = try await DCAppAttestService.shared.generateAssertion(attestKeyID, clientDataHash: hash)
+            let result: ReactionResult = try await post("/v1/posts/\(postId)/reaction", [
+                "challengeId": challenge.challengeId,
+                "reaction": kind,
+                "assertionBase64": assertion.base64EncodedString(),
+            ])
+            reactionCounts[postId] = result.reactions
+            myReactions[postId] = result.myReaction
+        } catch { status = "Reaction failed: \(error.localizedDescription)" }
     }
 
-    func publish(imageData: Data, caption: String) async {
+    func loadProfile() async {
+        guard !handle.isEmpty else { return }
+        do {
+            let loaded: ProfileSummary = try await get("/v1/profiles/\(handle)")
+            profile = loaded
+            if let avatarUrl = loaded.avatarUrl,
+               let (avatar, response) = try? await URLSession.shared.data(from: url(avatarUrl)),
+               (response as? HTTPURLResponse)?.statusCode == 200 {
+                avatarBytes[handle] = avatar
+            }
+        } catch { status = "Profile: \(error.localizedDescription)" }
+    }
+
+    func uploadAvatar(_ image: Data) async {
+        isBusy = true
+        status = "Approving profile photo with Face ID…"
+        defer { isBusy = false }
+        do {
+            guard let profileHex = UserDefaults.standard.string(forKey: "profileID"),
+                  let profileID = Data(hexString: profileHex) else {
+                throw AppError.server("Create your profile first")
+            }
+            let key = try persistentProfileKey()
+            let challenge: AvatarChallenge = try await post("/v1/profiles/avatar/challenge", ["profileId": profileHex])
+            guard let nonce = Data(hexString: challenge.challenge), nonce.count == 32 else {
+                throw AppError.invalidResponse
+            }
+            let message = Data("pupille:avatar:v1".utf8) + nonce
+                + Data(SHA256.hash(data: image)) + profileID
+            let signature = try key.signature(for: message).rawRepresentation
+            let _: AvatarUploaded = try await post("/v1/profiles/avatar", [
+                "challengeId": challenge.challengeId,
+                "imageBase64": image.base64EncodedString(),
+                "signature": signature.hex,
+            ])
+            avatarBytes[handle] = image
+            status = "Profile photo updated."
+            await loadProfile()
+        } catch { status = "Profile photo failed: \(error.localizedDescription)" }
+    }
+
+    private func audit(post: FeedPost, image: Data) -> [VerificationCheck] {
+        let issuer = Data(hexString: issuerPublicKeyHex)
+            .flatMap { try? Curve25519.Signing.PublicKey(rawRepresentation: $0) }
+        let profileBytes = Data(base64Encoded: post.profileCert.certB64)
+        let captureBytes = Data(base64Encoded: post.captureCert.certB64)
+        let profileSig = Data(base64Encoded: post.profileCert.sigB64)
+        let captureSig = Data(base64Encoded: post.captureCert.sigB64)
+        let profileSigned = issuer != nil && profileBytes != nil && profileSig != nil
+            && issuer!.isValidSignature(profileSig!, for: profileBytes!)
+        let captureSigned = issuer != nil && captureBytes != nil && captureSig != nil
+            && issuer!.isValidSignature(captureSig!, for: captureBytes!)
+        let profile = profileBytes.flatMap { try? JSONDecoder().decode(ProfileCertificate.self, from: $0) }
+        let capture = captureBytes.flatMap { try? JSONDecoder().decode(CaptureCertificate.self, from: $0) }
+        let imageDigest = Data(SHA256.hash(data: image))
+        let noDepth = Data(repeating: 0, count: 32)
+        let worldCredential = profile?.credential == "proof_of_human"
+            && ["staging", "production"].contains(profile?.environment ?? "")
+        let authorMatches = profile?.handle == post.author.handle
+            && profile?.profileId == post.author.profileId
+            && profile?.publicKey == post.author.publicKey
+        let captureMatches = capture?.profileId == profile?.profileId
+            && capture?.keyVersion == profile?.keyVersion
+            && capture?.depthSha256 == noDepth.hex
+        let imageMatches = capture?.imageSha256 == imageDigest.hex
+        let captionMatches: Bool
+        if let caption = post.caption, !caption.isEmpty {
+            captionMatches = capture?.captionSha256 == Data(SHA256.hash(data: Data(caption.utf8))).hex
+        } else {
+            captionMatches = capture?.captionSha256 == nil && capture != nil
+        }
+        var computed: Data?
+        if let profile, let capture,
+           let profileID = Data(hexString: profile.profileId),
+           let publicKey = Data(base64Encoded: profile.publicKey),
+           let challenge = Data(hexString: capture.challenge),
+           let assertionHash = Data(hexString: capture.assertionSha256) {
+            computed = Data(SHA256.hash(data: Data("pupille:capture:v1".utf8)
+                + imageDigest + noDepth + challenge + assertionHash + profileID + publicKey))
+        }
+        let commitmentMatches = computed != nil && computed?.hex == capture?.captureCommitment
+        var authorSigned = false
+        if let computed, let profile,
+           let keyBytes = Data(base64Encoded: profile.publicKey),
+           let key = try? P256.Signing.PublicKey(x963Representation: keyBytes),
+           let signatureBytes = Data(base64Encoded: post.postSignature),
+           let signature = try? P256.Signing.ECDSASignature(rawRepresentation: signatureBytes) {
+            authorSigned = key.isValidSignature(signature,
+                for: Data("pupille:post-sig:v1".utf8) + computed)
+        }
+        return [
+            VerificationCheck(title: "World Human credential certified at signup", passed: profileSigned && worldCredential),
+            VerificationCheck(title: "Profile belongs to this author", passed: authorMatches),
+            VerificationCheck(title: "Device capture certified by Pupille", passed: captureSigned && captureMatches),
+            VerificationCheck(title: "Exact photo bytes match", passed: imageMatches),
+            VerificationCheck(title: "Caption matches", passed: captionMatches),
+            VerificationCheck(title: "Capture commitment matches", passed: commitmentMatches),
+            VerificationCheck(title: "Author signed this capture", passed: authorSigned),
+        ]
+    }
+
+    @discardableResult
+    func publish(imageData: Data, caption: String) async -> Bool {
         isBusy = true
         status = "Binding your photo to a fresh device challenge…"
         defer { isBusy = false }
@@ -177,8 +315,11 @@ final class AppModel: ObservableObject {
             ])
             status = "Published photo \(published.postId). The World-backed profile signed this capture."
             await loadFeed()
+            await loadProfile()
+            return true
         } catch {
             status = "Publish failed: \(error.localizedDescription)"
+            return false
         }
     }
 
@@ -317,8 +458,10 @@ final class AppModel: ObservableObject {
         return base.appending(path: path)
     }
 
-    private func get<T: Decodable>(_ path: String) async throws -> T {
-        let (data, response) = try await URLSession.shared.data(from: url(path))
+    private func get<T: Decodable>(_ path: String, headers: [String: String] = [:]) async throws -> T {
+        var request = URLRequest(url: try url(path))
+        for (name, value) in headers { request.setValue(value, forHTTPHeaderField: name) }
+        let (data, response) = try await URLSession.shared.data(for: request)
         return try decode(data, response)
     }
 
