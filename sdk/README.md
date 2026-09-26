@@ -9,6 +9,7 @@ Pupille's app proves three things about a photo: the exact bytes came from its c
 | [`ios/PupilleKit`](ios/PupilleKit) | Swift package: World ID enrollment, the SDK-owned camera, signing and publishing, offline verification, proof embedding |
 | [`verify`](verify) | `@pupille/verify`: TypeScript verifier for Node and browsers, plus the `pupille-proof` CLI. No runtime dependencies. |
 | [`web-verifier`](web-verifier) | Drag-and-drop page that checks a JPEG in the browser. Nothing is uploaded. |
+| [`ios/Amazon`](ios/Amazon) | Mock store demo: product reviews whose photos are proven to be taken by a verified human |
 | [`ios/SampleGram`](ios/SampleGram) | A one-screen app built only on PupilleKit's public API |
 | [`scripts/run-samplegram-backend.sh`](scripts/run-samplegram-backend.sh) | Runs the unchanged Pupille backend a second time with SampleGram's app ID |
 

@@ -1,0 +1,234 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		8A0000000000000000000001 /* AmazonApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000001 /* AmazonApp.swift */; };
+		8A0000000000000000000002 /* ProductView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000002 /* ProductView.swift */; };
+		8A0000000000000000000003 /* ReviewComposer.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000003 /* ReviewComposer.swift */; };
+		8A0000000000000000000004 /* Store.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8B0000000000000000000004 /* Store.swift */; };
+		8A000000000000000000005A /* PupilleKit in Frameworks */ = {isa = PBXBuildFile; productRef = 8F0000000000000000000002 /* PupilleKit */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		8B0000000000000000000001 /* AmazonApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AmazonApp.swift; sourceTree = "<group>"; };
+		8B0000000000000000000002 /* ProductView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ProductView.swift; sourceTree = "<group>"; };
+		8B0000000000000000000003 /* ReviewComposer.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ReviewComposer.swift; sourceTree = "<group>"; };
+		8B0000000000000000000004 /* Store.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Store.swift; sourceTree = "<group>"; };
+		8B000000000000000000005A /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		8B000000000000000000005B /* Amazon.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Amazon.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		8E0000000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8A000000000000000000005A /* PupilleKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		8C0000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				8C0000000000000000000002 /* Amazon */,
+				8C0000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		8C0000000000000000000002 /* Amazon */ = {
+			isa = PBXGroup;
+			children = (
+				8B0000000000000000000001 /* AmazonApp.swift */,
+				8B0000000000000000000002 /* ProductView.swift */,
+				8B0000000000000000000003 /* ReviewComposer.swift */,
+				8B0000000000000000000004 /* Store.swift */,
+				8B000000000000000000005A /* Info.plist */,
+			);
+			path = Amazon;
+			sourceTree = "<group>";
+		};
+		8C0000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8B000000000000000000005B /* Amazon.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		8D0000000000000000000001 /* Amazon */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 890000000000000000000002 /* Build configuration list for PBXNativeTarget "Amazon" */;
+			buildPhases = (
+				8E0000000000000000000001 /* Sources */,
+				8E0000000000000000000003 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = Amazon;
+			packageProductDependencies = (
+				8F0000000000000000000002 /* PupilleKit */,
+			);
+			productName = Amazon;
+			productReference = 8B000000000000000000005B /* Amazon.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		8D0000000000000000000002 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					8D0000000000000000000001 = {
+						CreatedOnToolsVersion = 27.0;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 890000000000000000000001 /* Build configuration list for PBXProject "Amazon" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 8C0000000000000000000001;
+			packageReferences = (
+				8F0000000000000000000001 /* XCLocalSwiftPackageReference "../PupilleKit" */,
+			);
+			productRefGroup = 8C0000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				8D0000000000000000000001 /* Amazon */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		8E0000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				8A0000000000000000000001 /* AmazonApp.swift in Sources */,
+				8A0000000000000000000002 /* ProductView.swift in Sources */,
+				8A0000000000000000000003 /* ReviewComposer.swift in Sources */,
+				8A0000000000000000000004 /* Store.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		890000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+			};
+			name = Debug;
+		};
+		890000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+			};
+			name = Release;
+		};
+		890000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4397GAXGZ4;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Amazon/Info.plist;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = app.pupille.sample;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		890000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4397GAXGZ4;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = Amazon/Info.plist;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = app.pupille.sample;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		890000000000000000000001 /* Build configuration list for PBXProject "Amazon" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				890000000000000000000003 /* Debug */,
+				890000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		890000000000000000000002 /* Build configuration list for PBXNativeTarget "Amazon" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				890000000000000000000005 /* Debug */,
+				890000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		8F0000000000000000000001 /* XCLocalSwiftPackageReference "../PupilleKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../PupilleKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		8F0000000000000000000002 /* PupilleKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PupilleKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 8D0000000000000000000002 /* Project object */;
+}
