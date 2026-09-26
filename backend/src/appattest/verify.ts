@@ -242,8 +242,10 @@ interface AssertionObject {
  * (Node's default `dsaEncoding`), which is what `DCAppAttestService` and CryptoKit's ASN.1
  * `derRepresentation` both produce for assertions.
  *
- * IMPORTANT: exercised only against a hand-built fixture in this session (no physical iPhone) —
- * see docs/WORKLOG.md.
+ * Apple signs the SHA-256 nonce of authenticatorData || clientDataHash. The
+ * ECDSA verifier hashes its input once more, so pass the nonce, not the raw
+ * concatenation. The original hand-built fixture signed the concatenation and
+ * missed this difference on a physical iPhone.
  */
 export function verifyAssertion(
   assertionCbor: Buffer,
@@ -270,9 +272,9 @@ export function verifyAssertion(
     );
   }
 
-  const signedMessage = Buffer.concat([decoded.authenticatorData, clientDataHash]);
+  const nonce = createHash("sha256").update(Buffer.concat([decoded.authenticatorData, clientDataHash])).digest();
   const keyObject = x963ToNodePublicKey(storedPublicKeyX963);
-  const valid = cryptoVerify("sha256", signedMessage, keyObject, decoded.signature);
+  const valid = cryptoVerify("sha256", nonce, keyObject, decoded.signature);
   if (!valid) {
     throw new AppAttestVerificationError("assertion signature does not verify under the stored App Attest key", "assertion_signature_invalid");
   }

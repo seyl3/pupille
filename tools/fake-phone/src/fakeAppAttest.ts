@@ -123,7 +123,7 @@ export async function buildFakeAssertion(opts: {
   counterBuf.writeUInt32BE(opts.counter);
   const authenticatorData = Buffer.concat([rpIdHash, flags, counterBuf]);
 
-  const signedMessage = Buffer.concat([authenticatorData, opts.clientDataHash]);
+  const signedMessage = createHash("sha256").update(Buffer.concat([authenticatorData, opts.clientDataHash])).digest();
   const derSignature = Buffer.from(
     await webcrypto.subtle.sign(
       { name: "ECDSA", hash: "SHA-256" },

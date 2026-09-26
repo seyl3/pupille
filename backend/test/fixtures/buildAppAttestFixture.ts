@@ -136,9 +136,9 @@ export async function buildAssertionFixture(opts: {
   counterBuf.writeUInt32BE(opts.counter);
   const authenticatorData = Buffer.concat([rpIdHash, flags, counterBuf]);
 
-  const signedMessage = Buffer.concat([authenticatorData, opts.clientDataHash]);
+  const nonce = createHash("sha256").update(Buffer.concat([authenticatorData, opts.clientDataHash])).digest();
   const rawRs = Buffer.from(
-    await webcrypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, opts.credentialPrivateKey, signedMessage)
+    await webcrypto.subtle.sign({ name: "ECDSA", hash: "SHA-256" }, opts.credentialPrivateKey, nonce)
   );
   const derSignature = rawRsToDer(rawRs);
 
