@@ -1,6 +1,6 @@
 import "reflect-metadata"; // required by @peculiar/x509's DI container
 import { decode as cborDecode } from "cbor-x";
-import { createHash, createPublicKey, verify as cryptoVerify } from "node:crypto";
+import { createHash, createPublicKey, verify as cryptoVerify, X509Certificate as NodeX509Certificate } from "node:crypto";
 import { X509Certificate, X509ChainBuilder } from "@peculiar/x509";
 import * as asn1js from "asn1js";
 
@@ -51,11 +51,17 @@ interface AttestationObject {
 function parseAuthData(authData: Buffer) {
   // https://www.w3.org/TR/webauthn-2/#sec-authenticator-data
   // rpIdHash(32) || flags(1) || counter(4) || aaguid(16) || credIdLen(2) || credId(N) || credPubKey(CBOR)
+  if (authData.length < 55) {
+    throw new AppAttestVerificationError("attestation authenticatorData too short", "auth_data_malformed");
+  }
   const rpIdHash = authData.subarray(0, 32);
   const flags = authData[32];
   const counter = authData.readUInt32BE(33);
   const aaguid = authData.subarray(37, 53);
   const credIdLen = authData.readUInt16BE(53);
+  if (credIdLen !== 32 || authData.length <= 55 + credIdLen) {
+    throw new AppAttestVerificationError("attestation credential ID or public key malformed", "credential_malformed");
+  }
   const credId = authData.subarray(55, 55 + credIdLen);
   const credPubKeyCbor = authData.subarray(55 + credIdLen);
   return { rpIdHash, flags, counter, aaguid, credId, credPubKeyCbor };
@@ -63,15 +69,25 @@ function parseAuthData(authData: Buffer) {
 
 /** COSE_Key (EC2, P-256) -> 65-byte X9.63 uncompressed public key. */
 function coseKeyToX963(coseKeyCbor: Buffer): Buffer {
-  const cose = cborDecode(coseKeyCbor) as Map<number, unknown>;
-  const kty = cose.get(1);
-  const crv = cose.get(-1);
-  const x = cose.get(-2) as Buffer;
-  const y = cose.get(-3) as Buffer;
+  const cose: unknown = cborDecode(coseKeyCbor);
+  // cbor-x can return either a Map or a plain object for CBOR maps. Apple's actual
+  // COSE key takes the latter path; our hand-built fixture took the former.
+  const field = (key: number): unknown => cose instanceof Map
+    ? cose.get(key)
+    : cose !== null && typeof cose === "object" && !Array.isArray(cose)
+      ? (cose as Record<string, unknown>)[String(key)]
+      : undefined;
+  const kty = field(1);
+  const crv = field(-1);
+  const x = field(-2);
+  const y = field(-3);
   if (kty !== 2 || crv !== 1) {
     throw new AppAttestVerificationError("expected COSE EC2 P-256 key", "unsupported_key_type");
   }
-  return Buffer.concat([Buffer.from([0x04]), x, y]);
+  if (!(x instanceof Uint8Array) || x.length !== 32 || !(y instanceof Uint8Array) || y.length !== 32) {
+    throw new AppAttestVerificationError("COSE P-256 coordinates must be 32-byte byte strings", "bad_public_key");
+  }
+  return Buffer.concat([Buffer.from([0x04]), Buffer.from(x), Buffer.from(y)]);
 }
 
 /**
@@ -81,21 +97,20 @@ function coseKeyToX963(coseKeyCbor: Buffer): Buffer {
  * 2. Verify the x5c chain up to the pinned Apple App Attest root CA.
  * 3. nonce = SHA256(authData || clientDataHash); verify it appears in the leaf cert's
  *    1.2.840.113635.100.8.2 extension.
- * 4. Verify rpIdHash == SHA256(appId), aaguid matches the expected environment
- *    ("appattestdevelopment" or "appattest"), and extract keyId/publicKey/counter.
+ * 4. Verify RP ID, counter, AAGUID, certificate public key and credential ID.
  *
- * IMPORTANT: this has real CBOR parsing and a real chain-verification call, but has never been
- * exercised against a genuine Apple-issued attestation object in this session (no physical
- * iPhone available). Tests cover it with a HAND-BUILT fixture shaped to this exact parser, which
- * proves the parsing/chain logic is internally consistent, not that it matches Apple's real
- * output byte-for-byte. See docs/WORKLOG.md.
+ * This parser is covered by hand-built fixtures and has also accepted a genuine Apple-issued
+ * attestation from a physical iPhone 14 Pro through the Mac probe (2026-09-27). See
+ * docs/WORKLOG.md for the scope of that device check.
  */
 export async function verifyAttestation(
   attestationObjectCbor: Buffer,
   clientDataHash: Buffer,
   expectedAppId: string,
   /** Overridable only for tests, which sign fixtures with a throwaway test CA instead of Apple's real root. */
-  rootCaPem: string = APPLE_APP_ATTEST_ROOT_CA_PEM
+  rootCaPem: string = APPLE_APP_ATTEST_ROOT_CA_PEM,
+  expectedKeyId?: string,
+  environment: "development" | "production" = "development"
 ): Promise<AttestationResult> {
   const decoded = cborDecode(attestationObjectCbor) as AttestationObject;
   if (decoded.fmt !== "apple-appattest") {
@@ -116,6 +131,19 @@ export async function verifyAttestation(
 
   const { rpIdHash, counter, aaguid, credId, credPubKeyCbor } = parseAuthData(decoded.authData);
 
+  if ((decoded.authData[32] & 0x40) === 0) {
+    throw new AppAttestVerificationError("attested credential flag is missing", "auth_data_malformed");
+  }
+  if (counter !== 0) {
+    throw new AppAttestVerificationError("initial App Attest counter must be zero", "counter_invalid");
+  }
+  const expectedAaguid = environment === "development"
+    ? Buffer.from("appattestdevelop", "ascii")
+    : Buffer.concat([Buffer.from("appattest", "ascii"), Buffer.alloc(7)]);
+  if (!aaguid.equals(expectedAaguid)) {
+    throw new AppAttestVerificationError("App Attest environment does not match", "aaguid_mismatch");
+  }
+
   const expectedRpIdHash = createHash("sha256").update(expectedAppId, "utf8").digest();
   if (!rpIdHash.equals(expectedRpIdHash)) {
     throw new AppAttestVerificationError("rpIdHash does not match expected appId", "rp_id_mismatch");
@@ -131,9 +159,30 @@ export async function verifyAttestation(
     throw new AppAttestVerificationError("nonce not found in certificate extension", "nonce_mismatch");
   }
 
+  const certPublicKeyJwk = new NodeX509Certificate(decoded.attStmt.x5c[0]).publicKey.export({ format: "jwk" });
+  if (certPublicKeyJwk.kty !== "EC" || certPublicKeyJwk.crv !== "P-256" || !certPublicKeyJwk.x || !certPublicKeyJwk.y) {
+    throw new AppAttestVerificationError("credential certificate does not contain a P-256 key", "bad_public_key");
+  }
+  const certPublicKeyX963 = Buffer.concat([
+    Buffer.from([0x04]),
+    Buffer.from(certPublicKeyJwk.x, "base64url"),
+    Buffer.from(certPublicKeyJwk.y, "base64url"),
+  ]);
+  const authDataPublicKeyX963 = coseKeyToX963(credPubKeyCbor);
+  if (!authDataPublicKeyX963.equals(certPublicKeyX963)) {
+    throw new AppAttestVerificationError("authenticator key differs from credential certificate", "bad_public_key");
+  }
+  const keyHash = createHash("sha256").update(certPublicKeyX963).digest();
+  if (!credId.equals(keyHash)) {
+    throw new AppAttestVerificationError("credential ID is not the certificate public-key hash", "credential_id_mismatch");
+  }
+  if (expectedKeyId && !Buffer.from(expectedKeyId, "base64url").equals(credId)) {
+    throw new AppAttestVerificationError("iPhone key ID differs from attestation credential ID", "key_id_mismatch");
+  }
+
   return {
     keyId: credId.toString("base64url"),
-    publicKeyX963: coseKeyToX963(credPubKeyCbor),
+    publicKeyX963: certPublicKeyX963,
     receiptCbor: decoded.attStmt.receipt,
     counter,
     aaguid,

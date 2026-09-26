@@ -97,22 +97,23 @@ async function main() {
   }
   console.log(`  using test root at ${TEST_ROOT_DIR} (backend must be started with matching PUPILLE_APP_ATTEST_TEST_ROOT_PEM)`);
 
-  const attestClientDataHash = createHash("sha256").update("fake-phone-attest").digest();
+  const challengeRes = await callJson("/v1/attest/challenge", { method: "POST" });
+  if (challengeRes.status !== 200) throw new StepError("attest/challenge", JSON.stringify(challengeRes.body));
+  const attestClientDataHash = createHash("sha256")
+    .update(Buffer.from(challengeRes.body.challenge as string, "hex"))
+    .digest();
   const fakeAttestation = await buildFakeAttestation({
     appId: APP_ID,
     clientDataHash: attestClientDataHash,
     testRootDir: TEST_ROOT_DIR,
   });
 
-  const challengeRes = await callJson("/v1/attest/challenge", { method: "POST" });
-  if (challengeRes.status !== 200) throw new StepError("attest/challenge", JSON.stringify(challengeRes.body));
-
   const registerRes = await callJson("/v1/attest/register", {
     method: "POST",
     body: JSON.stringify({
       challengeId: challengeRes.body.challengeId,
+      keyId: fakeAttestation.keyId,
       attestationObject: fakeAttestation.attestationObjectCbor.toString("base64"),
-      clientDataHash: attestClientDataHash.toString("hex"),
     }),
   });
   if (registerRes.status !== 200) throw new StepError("attest/register", JSON.stringify(registerRes.body));

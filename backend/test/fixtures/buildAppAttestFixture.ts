@@ -20,7 +20,14 @@ cryptoProvider.set(webcrypto as unknown as Crypto);
  * is internally self-consistent. It does NOT prove compatibility with a real device's output —
  * see docs/WORKLOG.md "Untested".
  */
-export async function buildAppAttestFixture(opts: { appId: string; clientDataHash: Buffer }) {
+export async function buildAppAttestFixture(opts: {
+  appId: string;
+  clientDataHash: Buffer;
+  aaguid?: Buffer;
+  counter?: number;
+  credentialId?: Buffer;
+  untaggedCoseKey?: boolean;
+}) {
   const alg = { name: "ECDSA", namedCurve: "P-256", hash: "SHA-256" } as EcdsaParams & EcKeyGenParams;
 
   const rootKeys = await webcrypto.subtle.generateKey(alg, true, ["sign", "verify"]);
@@ -39,17 +46,16 @@ export async function buildAppAttestFixture(opts: { appId: string; clientDataHas
   // authData = rpIdHash(32) || flags(1) || counter(4) || aaguid(16) || credIdLen(2) || credId(N) || credPubKey(CBOR)
   const rpIdHash = createHash("sha256").update(opts.appId, "utf8").digest();
   const flags = Buffer.from([0x40]); // attested credential data present
-  const counter = Buffer.alloc(4); // 0
-  const aaguid = Buffer.from("appattestdevelopment", "ascii").subarray(0, 16).length === 16
-    ? Buffer.concat([Buffer.from("appattestdevelopmen", "ascii")]).subarray(0, 16)
-    : Buffer.alloc(16);
-  const credId = Buffer.from("test-key-id-0123456789ab", "utf8").subarray(0, 20);
-  const credIdLen = Buffer.alloc(2);
-  credIdLen.writeUInt16BE(credId.length);
+  const counter = Buffer.alloc(4);
+  counter.writeUInt32BE(opts.counter ?? 0);
+  const aaguid = opts.aaguid ?? Buffer.from("appattestdevelop", "ascii");
 
   const pubKeyJwk = await webcrypto.subtle.exportKey("jwk", credentialKeys.publicKey);
   const x = Buffer.from(pubKeyJwk.x!, "base64url");
   const y = Buffer.from(pubKeyJwk.y!, "base64url");
+  const credId = opts.credentialId ?? createHash("sha256").update(Buffer.concat([Buffer.from([0x04]), x, y])).digest();
+  const credIdLen = Buffer.alloc(2);
+  credIdLen.writeUInt16BE(credId.length);
   const coseKey = new Map<number, unknown>([
     [1, 2], // kty: EC2
     [3, -7], // alg: ES256
@@ -57,7 +63,16 @@ export async function buildAppAttestFixture(opts: { appId: string; clientDataHas
     [-2, x],
     [-3, y],
   ]);
-  const credPubKeyCbor = Buffer.from(cborEncode(coseKey));
+  // cbor-x adds a Map tag to its own encoding. Apple sends an ordinary, untagged
+  // CBOR map, which cbor-x decodes as a plain object instead of a JS Map.
+  const credPubKeyCbor = opts.untaggedCoseKey
+    ? Buffer.concat([
+        Buffer.from([0xa5, 0x01, 0x02, 0x03, 0x26, 0x20, 0x01, 0x21, 0x58, 0x20]),
+        x,
+        Buffer.from([0x22, 0x58, 0x20]),
+        y,
+      ])
+    : Buffer.from(cborEncode(coseKey));
 
   const authData = Buffer.concat([rpIdHash, flags, counter, aaguid, credIdLen, credId, credPubKeyCbor]);
 

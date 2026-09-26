@@ -28,6 +28,15 @@ describe("App Attest verification (against a hand-built fixture, NOT a real Appl
     expect(result.publicKeyX963[0]).toBe(0x04);
   });
 
+  it("accepts an untagged COSE map like the real iPhone sends", async () => {
+    const clientDataHash = Buffer.alloc(32, 0x42);
+    const fixture = await buildAppAttestFixture({ appId: APP_ID, clientDataHash, untaggedCoseKey: true });
+    const result = await verifyAttestation(
+      fixture.attestationObjectCbor, clientDataHash, APP_ID, toPem(fixture.rootCertDer)
+    );
+    expect(result.keyId).toBe(fixture.expectedKeyId);
+  });
+
   it("rejects when the chain does not reach the pinned root", async () => {
     const clientDataHash = Buffer.alloc(32, 0x42);
     const fixture = await buildAppAttestFixture({ appId: APP_ID, clientDataHash });
@@ -55,6 +64,40 @@ describe("App Attest verification (against a hand-built fixture, NOT a real Appl
     await expect(
       verifyAttestation(fixture.attestationObjectCbor, wrongClientDataHash, APP_ID, rootPem)
     ).rejects.toThrow(/nonce/);
+  });
+
+  it("rejects a key ID different from the one the iPhone submitted", async () => {
+    const hash = Buffer.alloc(32, 0x42);
+    const fixture = await buildAppAttestFixture({ appId: APP_ID, clientDataHash: hash });
+    await expect(
+      verifyAttestation(fixture.attestationObjectCbor, hash, APP_ID, toPem(fixture.rootCertDer), "wrong-key-id")
+    ).rejects.toMatchObject({ code: "key_id_mismatch" });
+  });
+
+  it("rejects a nonzero initial counter", async () => {
+    const hash = Buffer.alloc(32, 0x42);
+    const fixture = await buildAppAttestFixture({ appId: APP_ID, clientDataHash: hash, counter: 1 });
+    await expect(
+      verifyAttestation(fixture.attestationObjectCbor, hash, APP_ID, toPem(fixture.rootCertDer))
+    ).rejects.toMatchObject({ code: "counter_invalid" });
+  });
+
+  it("rejects an App Attest key from the wrong environment", async () => {
+    const hash = Buffer.alloc(32, 0x42);
+    const fixture = await buildAppAttestFixture({ appId: APP_ID, clientDataHash: hash, aaguid: Buffer.alloc(16) });
+    await expect(
+      verifyAttestation(fixture.attestationObjectCbor, hash, APP_ID, toPem(fixture.rootCertDer))
+    ).rejects.toMatchObject({ code: "aaguid_mismatch" });
+  });
+
+  it("rejects a credential ID not derived from the certificate public key", async () => {
+    const hash = Buffer.alloc(32, 0x42);
+    const fixture = await buildAppAttestFixture({
+      appId: APP_ID, clientDataHash: hash, credentialId: Buffer.alloc(32, 0x99),
+    });
+    await expect(
+      verifyAttestation(fixture.attestationObjectCbor, hash, APP_ID, toPem(fixture.rootCertDer))
+    ).rejects.toMatchObject({ code: "credential_id_mismatch" });
   });
 
   it("rejects a nonce extension whose bytes contain the right nonce but are not real DER SEQUENCE{[1] OCTET STRING} structure", async () => {

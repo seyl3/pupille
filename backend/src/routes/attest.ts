@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import { randomBytes } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import type pg from "pg";
 import { verifyAttestation, AppAttestVerificationError } from "../appattest/verify.js";
 import { config } from "../config.js";
@@ -19,19 +19,25 @@ export function attestRoutes(pool: pg.Pool) {
 
   // POST /v1/attest/register
   app.post("/register", async (c) => {
-    const body = await c.req.json<{ challengeId: string; attestationObject: string; clientDataHash: string }>();
+    const body = await c.req.json<{ challengeId: string; keyId: string; attestationObject: string }>();
     const pending = challenges.get(body.challengeId);
     if (!pending || pending.expiresAt < Date.now()) {
       return c.json({ error: "challenge_expired" }, 400);
     }
     challenges.delete(body.challengeId);
 
+    if (!body.keyId || !body.attestationObject) {
+      return c.json({ error: "attestation_missing_fields" }, 400);
+    }
+
     try {
+      const expectedClientDataHash = createHash("sha256").update(pending.challenge).digest();
       const result = await verifyAttestation(
         Buffer.from(body.attestationObject, "base64"),
-        Buffer.from(body.clientDataHash, "hex"),
+        expectedClientDataHash,
         config.appId,
-        config.appAttestRootCaOverridePem // undefined in production; only fake-phone/tests set this
+        config.appAttestRootCaOverridePem, // undefined in production; only fake-phone/tests set this
+        body.keyId
       );
       await pool.query(
         `insert into app_attest_keys (key_id, public_key, receipt, counter) values ($1, $2, $3, $4)

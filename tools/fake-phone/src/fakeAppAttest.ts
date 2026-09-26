@@ -50,14 +50,14 @@ export async function buildFakeAttestation(opts: { appId: string; clientDataHash
   const rpIdHash = createHash("sha256").update(opts.appId, "utf8").digest();
   const flags = Buffer.from([0x40]);
   const counter = Buffer.alloc(4);
-  const aaguid = Buffer.alloc(16); // zeroed; real value is "appattestdevelopment"/"appattest" per environment
-  const credId = Buffer.from("fake-phone-key-id-000000001", "utf8").subarray(0, 20);
-  const credIdLen = Buffer.alloc(2);
-  credIdLen.writeUInt16BE(credId.length);
+  const aaguid = Buffer.from("appattestdevelop", "ascii");
 
   const pubKeyJwk = await webcrypto.subtle.exportKey("jwk", credentialKeys.publicKey);
   const x = Buffer.from(pubKeyJwk.x!, "base64url");
   const y = Buffer.from(pubKeyJwk.y!, "base64url");
+  const credId = createHash("sha256").update(Buffer.concat([Buffer.from([0x04]), x, y])).digest();
+  const credIdLen = Buffer.alloc(2);
+  credIdLen.writeUInt16BE(credId.length);
   const coseKey = new Map<number, unknown>([
     [1, 2],
     [3, -7],
@@ -94,6 +94,7 @@ export async function buildFakeAttestation(opts: { appId: string; clientDataHash
 
   return {
     attestationObjectCbor: Buffer.from(cborEncode(attestationObject)),
+    keyId: credId.toString("base64url"),
     rootCertDer: Buffer.from(rootCert.rawData),
     // The credential (App Attest key) private key, so a later per-capture assertion can be signed
     // by the SAME key this attestation registered — a real device signs assertions with the key
