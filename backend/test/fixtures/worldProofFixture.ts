@@ -12,11 +12,23 @@ import { hashSignal } from "../../src/proto/captureHasher.js";
  * (FixtureWorldVerifyClient), so a test submitting a wrong signal fails exactly as it would
  * against the real API.
  */
+export interface WorldProofFixtureResult {
+  success: boolean;
+  signal_hash: string;
+  identifier: string;
+  issuer_schema_id: string;
+  sybil_score: number;
+  integrity_bundle: { fixture: boolean };
+  nullifier?: string;
+  session_id?: string;
+  session_nullifier?: string;
+}
+
 export function buildWorldProofFixture(opts: {
   signal: string;
   kind: "uniqueness" | "session";
   sessionId?: string;
-}) {
+}): WorldProofFixtureResult {
   const signalHash = hashSignal(opts.signal);
   const base = {
     success: true,

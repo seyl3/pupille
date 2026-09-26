@@ -209,5 +209,95 @@ export function profileRoutes(pool: pg.Pool) {
     }
   });
 
+  // POST /v1/profiles/rotate — new iPhone: proveSession(saved session_id) over a new
+  // profileCommitment (same profileId + handle, new key). Per §05: "a proof of the saved session
+  // over a new profileCommitment ... activates key version n+1 and retires n. Old posts stay valid."
+  app.post("/profiles/rotate", async (c) => {
+    const body = await c.req.json<{
+      profileId: string;
+      newPublicKey: string;
+      result: Record<string, unknown>;
+      newKeyPoP: string;
+    }>();
+    const profileId = hexDecode(body.profileId);
+    const newPublicKey = hexDecode(body.newPublicKey);
+
+    const profile = await pool.query("select * from profiles where id = $1", [profileId]);
+    if (profile.rowCount === 0) return c.json({ error: "profile_not_found" }, 404);
+    const handle: string = profile.rows[0].handle;
+    const sessionId: string = profile.rows[0].session_id;
+
+    const newCommitment = profileCommitment(profileId, newPublicKey, handle);
+    const expectedSignal = profileSignal(newCommitment);
+
+    let verifyResult: WorldVerifyResult;
+    try {
+      verifyResult = await worldClient.verify(config.rpId, body.result, expectedSignal);
+    } catch (err) {
+      if (err instanceof WorldVerifyError) return c.json({ error: err.code }, 400);
+      throw err;
+    }
+    if (verifyResult.session_id !== sessionId) {
+      return c.json({ error: "session_mismatch" }, 400);
+    }
+
+    const popValid = verifyProfileSignature(hexDecode(body.newKeyPoP), profilePoPMessage(newCommitment), newPublicKey);
+    if (!popValid) {
+      return c.json({ error: "profile_pop_invalid" }, 400);
+    }
+
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const activeKey = await client.query(
+        "select key_version from profile_keys where profile_id = $1 and status = 'active'",
+        [profileId]
+      );
+      if (activeKey.rowCount === 0) throw new Error("no active key found for profile during rotation");
+      const nextVersion = activeKey.rows[0].key_version + 1;
+
+      const certJson = {
+        v: 1,
+        type: "profile",
+        issuer: "pupille-backend-1",
+        profileId: hex(profileId),
+        handle,
+        keyVersion: nextVersion,
+        publicKey: newPublicKey.toString("base64"),
+        credential: "selfie",
+        uniquenessAction: UNIQUENESS_ACTION,
+        worldSession: true,
+        profileCommitment: hex(newCommitment),
+        validFrom: new Date().toISOString(),
+      };
+      const certBytes = Buffer.from(JSON.stringify(certJson), "utf8");
+      const certSig = signCertificate(certBytes);
+
+      // Retire the old key BEFORE inserting the new one — the one_active_key partial unique
+      // index (on status = 'active') would otherwise reject having two active rows at once.
+      await client.query(
+        "update profile_keys set status = 'retired', retired_at = now() where profile_id = $1 and status = 'active'",
+        [profileId]
+      );
+      await client.query(
+        `insert into profile_keys (profile_id, key_version, public_key, status, cert, cert_sig)
+         values ($1, $2, $3, 'active', $4, $5)`,
+        [profileId, nextVersion, newPublicKey, certBytes, certSig]
+      );
+      await client.query("COMMIT");
+
+      return c.json({
+        handle,
+        keyVersion: nextVersion,
+        profileCert: { certB64: certBytes.toString("base64"), sigB64: certSig.toString("base64") },
+      });
+    } catch (err) {
+      await client.query("ROLLBACK");
+      throw err;
+    } finally {
+      client.release();
+    }
+  });
+
   return app;
 }

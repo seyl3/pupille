@@ -295,4 +295,41 @@ describe("full profile-creation → capture → publish → feed chain (real Pos
     const body = await deviceRes.json();
     expect((body as any).error).toBe("post_signature_invalid");
   });
+
+  it("rotates a profile's key to a new iPhone via /v1/profiles/rotate", async () => {
+    const { profileId, key: oldKey } = await createProfile("frank");
+    const profileRow = await pool.query("select session_id from profiles where id = $1", [profileId]);
+    const sessionId: string = profileRow.rows[0].session_id;
+
+    const newKey = new SoftwareProfileKeyForTests();
+    const newCommitment = profileCommitment(profileId, newKey.publicKeyX963, "frank");
+    const rotateResult = {
+      ...buildWorldProofFixture({ signal: profileSignal(newCommitment), kind: "session" }),
+      session_id: sessionId,
+    };
+    const newKeyPoP = newKey.sign(profilePoPMessage(newCommitment));
+
+    const rotateRes = await app.request("/v1/profiles/rotate", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        profileId: hex(profileId),
+        newPublicKey: hex(newKey.publicKeyX963),
+        result: rotateResult,
+        newKeyPoP: hex(newKeyPoP),
+      }),
+    });
+    expect(rotateRes.status).toBe(200);
+    const { keyVersion } = (await rotateRes.json()) as { keyVersion: number };
+    expect(keyVersion).toBe(2);
+
+    const keys = await pool.query(
+      "select key_version, status from profile_keys where profile_id = $1 order by key_version",
+      [profileId]
+    );
+    expect(keys.rows).toEqual([
+      { key_version: 1, status: "retired" },
+      { key_version: 2, status: "active" },
+    ]);
+  });
 });
