@@ -1,8 +1,10 @@
-<!-- Pupille architecture. Source of truth for the build. Kept in sync with the design page. -->
+<!-- Pupille architecture and World ID credential policy. -->
 
 ETHGlobal Tokyo 2026 · World · Best Use of IDKit
 
 # Pupille: verify who published a photo, and how it was captured
+
+> **World ID policy:** Pupille requires Orb-backed Proof of Human. Production uses the World ID 4.0 `proofOfHuman` preset for profile uniqueness and, when supported by the installed SDK and World App, a Proof of Human session for each post and key rotation. The no-Orb demo uses a **Human test identity** in [World's staging simulator](https://simulator.worldcoin.org/) and verifies the staging proof through World. If the simulator's browser flow only supports legacy Orb proofs, the staging demo can use `orbLegacy` for profile creation; it must omit per-post World-session claims and label the proof as staging legacy. A simulator identity is not a production Orb-verified person. See [iPhone testing](IPHONE_TESTING.md#world-testing-without-an-orb).
 
 A black-and-white photo feed for iOS. Anyone can check that a photo passed Pupille's trusted capture flow, and that it was published by the original World-backed pseudonymous author shown on the post.
 
@@ -20,8 +22,8 @@ World's brief asks for IDKit at a genuine trust moment, with the minimum credent
 
 | World asks for | Where most teams stop | What Pupille does |
 |----|----|----|
-| **A genuine trust moment** | A "verify you're human" gate at sign-up | Two moments, each with the World ID flow built for it. **Creating @xyz**: a uniqueness proof (one profile per World ID) plus a new World ID session, both bound to that exact pseudonym and public key. **Publishing**: a session proof binds the same human to that exact photo. |
-| **The minimum credential that covers it** | Orb-only, or as many credentials as possible | **Selfie Check.** The claim is "a real, unique person stands behind @xyz," nothing more. The full justification is in [§16](#prize). |
+| **A genuine trust moment** | A "verify you're human" gate at sign-up | **Creating @xyz**: an Orb-backed Proof of Human uniqueness proof binds a person to that pseudonym and public key. **Publishing**: a Proof of Human session proof binds the same World ID to that photo when the 4.0 session flow is available. |
+| **A credential that covers the claim** | A generic personhood gate | **Proof of Human.** Pupille promises one profile per unique Orb-verified person, so a weaker Selfie Check is insufficient. The choice is explained in [§16](#prize). |
 | **Server verification** | A proof checked only in the app | Every proof is verified by the backend through World's API, **against a signal the server computed itself**. |
 | **Success plus an alternative scenario** | One contrived error screen | Cancel in the World App → the post stays a draft and never publishes. Also covered: a second profile for the same human is refused, a handle is taken, a proof from a different human doesn't match the profile, and a tampered or re-attributed photo loses its badge on every phone. |
 | **Integration feedback** | A paragraph written at 8 AM | A friction log kept with timestamps from hour one ([§17](#feedback)). |
@@ -30,7 +32,7 @@ World's brief asks for IDKit at a genuine trust moment, with the minimum credent
 
 - **The signal binds a human to a key.** At profile creation the signal commits to `profileId`, the Secure Enclave public key and the handle. World ID doesn't just say "a human verified." It says "a human stands behind this exact key and name."
 - **Authorship doesn't depend on our server.** Every photo is signed by the author's own Secure Enclave key. Any iPhone checks that signature itself. The server can't forge it.
-- **It uses World ID 4.0 as designed.** The nullifier is used once, for uniqueness when the profile is created. `session_id` provides continuity on every post. This is exactly the split World's 4.0 migration guide prescribes, and the flow its Selfie Check docs recommend for repeated checks.
+- **It uses World ID 4.0 as designed.** A Proof of Human uniqueness nullifier is consumed when a profile is created. A Proof of Human `session_id` can provide continuity on posts and key rotations. Sessions require a 4.0 proof; a staging legacy Orb proof alone cannot establish one.
 - **Signals are raw bytes.** Each commitment is passed as a `0x` hex signal, which IDKit hashes as bytes. The backend recomputes the `signal_hash` and checks it before calling World's verify API.
 - **Layered trust, as in ZCAM:** media binding (hashes), device (App Attest), author (profile key), human (World ID). They're chained in one commitment, so no layer can be swapped out.
 
@@ -46,7 +48,7 @@ World's brief asks for IDKit at a genuine trust moment, with the minimum credent
 
 ### Say the limits before a judge does
 
-App Attest doesn't prove where the photons came from. The backend vouches for the profile binding and the App Attest checks. Selfie Check is medium assurance. Each has a stated answer on this page ([§15](#threats), [§20](#future)).
+App Attest doesn't prove where the photons came from. The backend vouches for the profile binding and the App Attest checks. Production Proof of Human depends on real Orb enrollment; a staging Human identity only tests the integration. Each limit has a stated answer on this page ([§15](#threats), [§20](#future)).
 
 <a id="badge"></a>
 
@@ -58,7 +60,7 @@ These are the four lines in the VerificationSheet, plus one optional line. For e
 |----|----|----|----|
 | **Captured through Pupille** | Single-use server challenge before the shutter. Camera-only path with no Photo Library import. | Pupille issuer | `must` |
 | **Genuine app/device attestation** | App Attest key attested by Apple. Per-capture assertion over the image hash and challenge. | Pupille issuer (checked Apple) | `must` |
-| **Published by verified human @xyz** | Profile key signature over the capture commitment. The profile certificate binds the key to @xyz and to a World uniqueness proof. The per-post World session proof carries the profile's `session_id`. | **Signature checked on the phone.** Profile binding vouched for by the issuer. | `must` |
+| **Published by verified human @xyz** | Profile key signature over the capture commitment. The profile certificate binds the key to @xyz and to a verified World Proof of Human uniqueness result. On the 4.0 path, the per-post session proof also carries the profile's `session_id`. | **Signature checked on the phone.** World binding vouched for by the issuer; staging and proof freshness shown explicitly. | `must` |
 | **Image bytes unchanged** | `SHA-256(imageBytes)` equals the committed hash | **Checked on the phone, no trust needed** | `must` |
 | 3D scene | LiDAR depth hashed into the assertion and the commitment. Flatness recomputed by the backend. | Pupille issuer | `should` |
 
@@ -76,7 +78,7 @@ The design follows the updated prompt. Where it adds precision, the change and t
 | Assertion over `SHA256("pupille:v1" || imageHash || challenge)` | Tag `pupille:assert:v1`, plus `depthHash` (zeros when absent) | One tag per purpose. Adding LiDAR later then doesn't change the protocol. |
 | `captureCommitment` as listed | Same fields in the same order, plus `depthHash` after `imageHash` | Same as above |
 | "Sign that commitment" | Sign `"pupille:post-sig:v1" || captureCommitment` | The same key will sign profile changes and future objects. The tag stops a post signature from being reused as any other kind of signature. |
-| "World session/continuity proof where supported" | **Supported, and used.** `createSession` when the profile is created, `proveSession(session_id)` for each post and each key rotation. | In World ID 4.0, a nullifier can only be used once per action. `session_id` is the documented way to link a returning user (§03). |
+| "World session/continuity proof where supported" | Use `createSession` at profile creation and `proveSession(session_id)` for posts and key rotation **after verifying that the 4.0 Proof of Human path works end to end**. | Sessions cannot use legacy proofs. A staging `orbLegacy` fallback covers profile uniqueness only, so its post flow must state that no fresh World proof was obtained. |
 | (not in the prompt) | A uniqueness proof (action `pupille-profile-v1`) when the profile is created, in addition to the session | A session alone gives continuity but not "one profile per World ID." That needs a uniqueness nullifier. |
 | (not in the prompt) | Signals are `"0x" + hex(commitment)` | IDKit decodes `0x` hex signals as raw bytes. Without the prefix, the 64 characters would be hashed as text, which is ambiguous. |
 | "The public key becomes the permanent identity" | `profileId` is permanent. Keys are versioned. A new iPhone rotates the key with a World proof from the same human. | Secure Enclave keys can't leave the device. Without rotation, a lost phone means a lost profile. |
@@ -91,16 +93,16 @@ Checked on 26 Sept 2026 against docs.world.org and the IDKit source (`worldcoin/
 | Fact | Consequence for Pupille | Source |
 |----|----|----|
 | **In 4.0, nullifiers are one-time-use per action.** A uniqueness request lets each user complete an action once. Repeats fail with `nullifier_replayed` or `max_verifications_reached`. | A per-post proof can't reuse the same action. The earlier "one action, same nullifier" design wouldn't work. | [4.0 migration](https://docs.world.org/world-id/4-0-migration), [error codes](https://docs.world.org/world-id/idkit/error-codes) |
-| **`session_id` is the stable link across requests.** Create a session once, save it to the account, then prove that same session on later checks. `session_nullifier` (`[nullifier, action]`) is per-proof replay protection, not an account ID. | Profile creation → `createSession`. Every post → `proveSession(savedSessionId)`. Store and reject reused session nullifiers. | [Session proofs](https://docs.world.org/world-id/idkit/session-proofs) |
-| Session proofs are World's recommended flow for repeated Selfie Check verification | Our per-post check is the documented use case, not a workaround | [Selfie Check](https://docs.world.org/world-id/credentials/11) |
+| **Proof of Human is backed by Orb enrollment.** The current preset is `proofOfHuman`; `orbLegacy` requests an older Orb proof. | Require Proof of Human in production. Use `orbLegacy` only as a staging compatibility fallback, with a different claim on per-post freshness. | [Credentials](https://docs.world.org/world-id/idkit/credentials), [Proof of Human](https://docs.world.org/world-id/credentials/1) |
+| **`session_id` is the stable link across 4.0 requests.** Create a session once, save it to the account, then prove that same session on later checks. `session_nullifier` (`[nullifier, action]`) is per-proof replay protection, not an account ID. | On the 4.0 path, profile creation → `createSession` with Proof of Human; every post → `proveSession(savedSessionId)` with the same credential. Reject reused session nullifiers. | [Session proofs](https://docs.world.org/world-id/idkit/session-proofs) |
+| **Sessions do not support legacy proofs.** | Never pretend that an `orbLegacy` staging identity completed a per-post World session. Its posts are authorized by the Orb-bound profile key and device checks, and the badge states the earlier staging proof. | [Session proofs](https://docs.world.org/world-id/idkit/session-proofs) |
 | Session requests carry presets (and signals). Their RP signature is made **without an action** (49-byte message). | The backend calls `signRequest({signingKeyHex})` with no action for sessions, and with an action for the uniqueness proof | [RP signatures](https://docs.world.org/world-id/idkit/signatures), `rust/core/src/bridge.rs` |
 | **Signal encoding:** a string that is `0x` + even-length hex is decoded to raw bytes. Anything else is hashed as UTF-8 text. `signal_hash = keccak256(bytes) >> 8`. | Signals are `"0x" + hex(commitment)`. Signal-hash test vectors are in §06. | `rust/core/src/types.rs`, RP signatures page |
 | **The verify API does not take an expected signal.** It checks the proof against the `signal_hash` inside the result. IDKit computes it, and the RP must not reshape the payload. | The backend must compare each response's `signal_hash` with `hashSignal(expected)` *itself*, then forward the unchanged result to `/api/v4/verify/{rp_id}`. | [Verify API](https://docs.world.org/api-reference/developer-portal/verify) |
-| Selfie Check results include `sybil_score` and an `integrity_bundle` (World App's App Attest attestation), which must be forwarded | Forward them unchanged. Store `sybil_score` and act on it only after verification succeeds. | Verify API, Selfie Check |
-| **Selfie Check is medium assurance.** It "does not provide a strict one-person-one-account guarantee." It has a 90-day inactivity window. | Claim "one profile per World ID," with Orb as the strong label. Don't claim strict uniqueness for Selfie. | Selfie Check |
+| The full IDKit result, including its credential identifier, must reach World verification unchanged. | Check the expected environment, action, nonce, signal, credential and nullifier before issuing a profile or capture certificate. Store the uniqueness nullifier atomically. | [IDKit integration](https://docs.world.org/world-id/idkit/integrate) |
 | IDKit supports `return_to` (a deep-link callback URL) | `returnTo: "pupille://world-done"` brings the user straight back after they approve | JS and Swift references |
-| **Swift SDK 4.0.11 (latest release):** the public wrapper has no 4.0 `selfieCheck` preset, and `createSession`/`proveSession` are commented out ("Re-enable when World ID 4.0 is live"). The generated bindings underneath are public: `IdKitBuilder.fromCreateSession`, `fromProveSession`, `.constraints(...)` with `CredentialType.selfie`. | `WorldIDService` uses the generated bindings directly (§11). Fallback: the backend runs `@worldcoin/idkit-core` 4.3.0, which has full session and Selfie Check support, and hands the connector URL to the app. | `idkit-swift/Sources/IDKit` |
-| Testing: `staging` + simulator.worldcoin.org, or `sandbox` (TestFlight World ID app, access by request) | Confirm at the booth which environment supports 4.0 sessions and Selfie Check today | [Sandbox](https://docs.world.org/world-id/sandbox/what-is-sandbox) |
+| The Swift SDK documents staging simulator testing and a legacy Orb request. The exact 4.0 Proof of Human session surface must be checked against the installed Swift version before coding. | Prefer the supported Swift API; if it lacks the needed 4.0 session wrapper, use the public generated bindings or drive IDKit from the backend. Do not claim the path works until a staging proof verifies. | [Swift SDK](https://github.com/worldcoin/idkit-swift), [IDKit integration](https://docs.world.org/world-id/idkit/integrate) |
+| Testing: `environment: .staging` with simulator.worldcoin.org and a Human test identity. The simulator repository also documents native 4.0 staging Proof of Human via its MCP. | Test the actual iPhone-to-browser handoff before relying on it for the live demo. Production requests and production proofs must stay separate. | [IDKit integration](https://docs.world.org/world-id/idkit/integrate), [simulator](https://github.com/worldcoin/simulator) |
 
 <a id="overview"></a>
 
@@ -115,7 +117,7 @@ flowchart LR
     AA["App Attest key<br/>(Secure Enclave)"]
     PV["ProofVerifier<br/>(pinned issuer key)"]
   end
-  WA["World App"]
+  WA["World App (production)<br/>or simulator (staging)"]
   subgraph Server["Pupille backend (TypeScript)"]
     API["REST API"]
     DB[("Postgres")]
@@ -137,7 +139,7 @@ flowchart LR
 
 ### Chain of trust for one post
 
-`image bytes → captureCommitment → App Attest assertion → profile key signature → profile cert: key ↔ @xyz → World session proof (profile's session_id)`
+`image bytes → captureCommitment → App Attest assertion → profile key signature → profile cert: key ↔ @xyz ↔ Proof of Human → World session proof (4.0 path)`
 
 The commitment includes the image hash, depth, challenge, assertion hash, `profileId` and the profile public key. So each later link covers everything before it.
 
@@ -156,16 +158,17 @@ A profile is a cryptographic identity, not a username row. The public handle is 
 
 | World primitive | When | Signal | Stored | Gives us |
 |----|----|----|----|----|
-| Uniqueness proof, action `pupille-profile-v1` | Once, when the profile is created | `0x` + profileCommitment | Nullifier (`NUMERIC(78,0)`, unique) | One profile per World ID |
-| `createSession` | Once, when the profile is created | `0x` + profileCommitment | `session_id` on the profile | The anchor for continuity |
-| `proveSession(session_id)` | Every post | `0x` + captureCommitment | `session_nullifier` (replay table) | The same World ID that created @xyz approved this exact photo |
-| `proveSession(session_id)` + `require_user_presence` | Key rotation (new iPhone) | `0x` + new profileCommitment | New key version | Moving the profile to a new device |
+| `proofOfHuman` uniqueness proof, action `pupille-profile-v1` | Once, when the profile is created | `0x` + profileCommitment | Nullifier (`NUMERIC(78,0)`, unique), credential and environment | One profile per Orb-backed World ID |
+| `createSession` with Proof of Human | Once, on the 4.0 profile path | `0x` + profileCommitment | `session_id` on the profile | The anchor for continuity |
+| `proveSession(session_id)` with Proof of Human | Every post on the 4.0 path | `0x` + captureCommitment | `session_nullifier` (replay table) | The same World ID that created @xyz approved this exact photo |
+| `proveSession(session_id)` + `require_user_presence` | Key rotation on the 4.0 path | `0x` + new profileCommitment | New key version | Moving the profile to a new device |
+| `orbLegacy` uniqueness proof | Staging fallback only | `0x` + profileCommitment | Legacy nullifier, staging credential | Tests a Human identity without a 4.0 session; later posts use the bound profile key, not a fresh World proof |
 
 ### Rules
 
-- **One profile per World ID.** A second uniqueness proof from the same World ID returns an already-used nullifier, and the backend refuses it with "You already are @abc." With Selfie Check this is medium assurance (World's own wording). Orb makes it strict.
-- **Continuity comes from `session_id`, never the nullifier.** Replacing a profile's session is a security operation, as World's session guide says. It's only allowed through a proof of the existing session.
-- **New iPhone = key rotation.** A proof of the saved session over a new profileCommitment (same profileId and handle, new key) activates key version `n+1` and retires `n`. Old posts stay valid.
+- **One profile per Orb-backed World ID.** A second uniqueness proof from the same World ID has the same action-scoped nullifier or is rejected by World. The backend refuses another profile with `409 one_profile_per_human` and does not rely on a client-side success flag.
+- **Continuity comes from `session_id`, never the uniqueness nullifier.** Replacing a profile's 4.0 session is a security operation. It requires proof of the existing session.
+- **New iPhone = key rotation on the 4.0 path.** A proof of the saved session over a new profileCommitment (same profileId and handle, new key) activates key version `n+1` and retires `n`. Old posts stay valid. The legacy staging fallback does not support this rotation flow.
 - **A passkey is optional and separate:** for login or recovery later, never as the authorship key.
 
 <a id="spec"></a>
@@ -206,7 +209,7 @@ signal_hash       = "0x" + hex( uint256(keccak256(signalBytes)) >> 8 )      // =
 
 // auth
 authSignature     = Sign(profileKey, "pupille:auth:v1" || authChallenge)
-worldProofHash    = H(exact bytes of the IDKit result JSON sent by the app)
+worldProofHash    = H(exact bytes of the verified IDKit result JSON)         // for requests that produced a World proof
 ```
 
 Hashing is SHA-256 on our side and Keccak-256 on World's (`hash_to_field`). Use `IDKit.hashSignal` (Swift) or `hashSignal` from `@worldcoin/idkit-core/hashing` (Node) instead of writing your own. The `signal_hash` vectors below were checked against World's published `hash_to_field` vectors.
@@ -235,7 +238,7 @@ ECDSA signatures are randomized, so they have no fixed vector. Test them with a 
 
 ## 07 · Flow: create @handle
 
-First launch attests the App Attest key once (challenge → `attestKey` → `/attest/register`). Creating a profile then takes two short World App approvals: "Prove you're unique" and "Link World ID to @xyz". With `returnTo`, each one brings the user straight back.
+First launch attests the App Attest key once (challenge → `attestKey` → `/attest/register`). On the 4.0 path, creating a profile takes two World approvals: a Proof of Human uniqueness request and a Proof of Human session request. With `returnTo`, each one brings the user back. The staging legacy fallback completes only the uniqueness request; it does not create a session.
 
 ```mermaid
 sequenceDiagram
@@ -243,7 +246,7 @@ sequenceDiagram
   participant App as Pupille
   participant SE as Secure Enclave
   participant BE as Backend
-  participant WA as World App
+  participant WA as World App / staging simulator
   participant W as World API
   App->>BE: GET /handles/xyz
   BE-->>App: available
@@ -252,30 +255,32 @@ sequenceDiagram
   App->>App: profileId = 16 random bytes, profileCommitment
   App->>BE: POST /profiles/start {profileId, publicKey, handle, attestKeyId}
   BE-->>App: handle reserved 10 min + rpContext (action pupille-profile-v1)
-  App->>WA: uniqueness request, selfie, signal 0x+profileCommitment
+  App->>WA: Proof of Human uniqueness request, signal 0x+profileCommitment
   WA-->>App: proof (nullifier)
   App->>BE: POST /profiles/unique {proof}
   BE->>BE: check signal_hash + nonce + action
   BE->>W: POST /api/v4/verify/{rp_id}
   W-->>BE: success
   BE->>BE: nullifier unused? store it
-  BE-->>App: rpContext (session, no action)
-  App->>WA: createSession, selfie, signal 0x+profileCommitment
-  WA-->>App: proof + session_id
+  opt World ID 4.0 Proof of Human path
+    BE-->>App: rpContext (session, no action)
+    App->>WA: createSession, Proof of Human, signal 0x+profileCommitment
+    WA-->>App: proof + session_id
+  end
   App->>SE: sign profile-sig tag + profileCommitment (Face ID)
-  App->>BE: POST /profiles/complete {sessionProof, profilePoP, assertion}
+  App->>BE: POST /profiles/complete {sessionProof if 4.0, profilePoP, assertion}
   BE->>BE: check signal_hash, PoP, assertion
   BE->>W: POST /api/v4/verify/{rp_id}
-  W-->>BE: success, session_id
+  W-->>BE: verified credential and session_id if 4.0
   BE-->>App: profile cert v1 + session token
   
 ```
 
-**Backend checks, in order:** reservation valid → each response's `signal_hash == hashSignal("0x"+profileCommitment)` → nonce matches the one issued → World verify succeeds → the nullifier hasn't been used (otherwise return `409 one_profile_per_human` with that profile's handle) → `profilePoP` is valid under the submitted key → App Attest assertion over `H("pupille:profile-assert:v1" || profileCommitment)` → store `session_id` and `sybil_score`.
+**Backend checks, in order:** reservation valid → each response's `signal_hash == hashSignal("0x"+profileCommitment)` → nonce/action/environment match the request → World verify succeeds with Proof of Human (or a staging-only legacy Orb identifier) → nullifier has not been used (otherwise return `409 one_profile_per_human`) → `profilePoP` is valid under the submitted key → App Attest assertion over `H("pupille:profile-assert:v1" || profileCommitment)` → store the verified credential, environment and, on the 4.0 path, `session_id`. The uniqueness insertion and profile creation must be atomic.
 
-**Key rotation (new iPhone):** the user enters their handle and a new key is created. `proveSession(saved session_id)` runs with `require_user_presence` and the new profileCommitment as the signal. The backend checks that `session_id` matches the profile, then issues key version `n+1`. No new uniqueness proof is needed.
+**Key rotation (new iPhone):** on the 4.0 path, the user enters their handle and a new key is created. `proveSession(saved session_id)` runs with `require_user_presence` and the new profileCommitment as the signal. The backend checks that `session_id` matches the profile, then issues key version `n+1`. A staging legacy profile has no session and cannot use this recovery path.
 
-**Failure screens, mapped to IDKit codes:** `user_rejected` / `cancelled` → "You cancelled in World ID. @xyz isn't created yet." · `credential_unavailable` → "Complete Selfie Check in World ID first." · `user_presence_failed` · `timeout` · `rp_signature_expired` → retry with a fresh context · `409 one_profile_per_human` → "You already are @abc" · `handleTaken` · `reservationExpired` · `attestUnsupported`.
+**Failure screens, mapped to IDKit codes:** `user_rejected` / `cancelled` → "You cancelled in World ID. @xyz isn't created yet." · `credential_unavailable` → "This flow needs Orb-backed Proof of Human." · `user_presence_failed` · `timeout` · `rp_signature_expired` → retry with a fresh context · `409 one_profile_per_human` → "You already have a profile" · `handleTaken` · `reservationExpired` · `attestUnsupported`.
 
 <a id="post"></a>
 
@@ -290,7 +295,7 @@ sequenceDiagram
   participant App as Pupille
   participant SE as Secure Enclave
   participant BE as Backend
-  participant WA as World App
+  participant WA as World App / staging simulator
   participant W as World API
   U->>App: open camera
   App->>BE: POST /captures/challenge
@@ -304,14 +309,20 @@ sequenceDiagram
   SE-->>App: postSignature
   App->>BE: POST /captures/{id}/device (image, depth, assertion, postSignature)
   BE->>BE: recompute everything, verify assertion + counter + postSignature
-  BE-->>App: rpContext
-  App->>WA: proveSession(session_id), selfie, signal 0x+captureCommitment
-  WA-->>App: session proof (returnTo brings user back)
-  App->>BE: POST /captures/{id}/human {proof, caption}
-  BE->>BE: signal_hash, nonce, session_id == profile, session_nullifier unused
-  BE->>W: POST /api/v4/verify/{rp_id}
-  W-->>BE: success
-  BE->>BE: store session_nullifier, issue capture cert, publish
+  alt World ID 4.0 Proof of Human session
+    BE-->>App: rpContext
+    App->>WA: proveSession(session_id), Proof of Human, signal 0x+captureCommitment
+    WA-->>App: session proof (returnTo brings user back)
+    App->>BE: POST /captures/{id}/human {proof, caption}
+    BE->>BE: signal_hash, nonce, environment, credential, session_id and replay checks
+    BE->>W: POST /api/v4/verify/{rp_id}
+    W-->>BE: success
+    BE->>BE: store session_nullifier, issue capture cert, publish
+  else staging legacy Orb profile
+    App->>BE: POST /captures/{id}/human {caption, no session proof}
+    BE->>BE: require staging legacy profile and verified device/key checks
+    BE->>BE: issue capture cert marked without fresh World proof, publish
+  end
   BE-->>App: post
   App->>App: ProofVerifier, badge
   
@@ -328,14 +339,15 @@ stateDiagram-v2
   imageHash --> appAttest
   appAttest --> profileSignature: Face ID
   profileSignature --> deviceVerification: POST /device
-  deviceVerification --> worldProof: accepted
+  deviceVerification --> worldProof: 4.0 session profile
+  deviceVerification --> certificate: staging legacy profile
   worldProof --> certificate: POST /human
   certificate --> published
   published --> localVerify
   localVerify --> badged
   badged --> [*]
   profileSignature --> draft: Face ID cancelled
-  worldProof --> draft: World App cancelled / timed out
+  worldProof --> draft: World App or simulator cancelled / timed out
   deviceVerification --> failed: rejected / challenge expired
   certificate --> failed: wrong session / replayed / proof invalid
   localVerify --> unverified: any check fails
@@ -344,12 +356,12 @@ stateDiagram-v2
   
 ```
 
-- **Cancelling in the World App is the demo's alternative scenario.** The post stays a local draft: "Not posted — approve in World App to publish."
+- **Cancelling the World approval is the 4.0 demo's alternative scenario.** The post stays a local draft: "Not posted — approve in World ID to publish." On the staging legacy fallback, demonstrate cancellation during profile creation instead; there is no per-post World approval.
 - The backend recomputes `imageHash`, `depthHash`, `clientDataHash` and `captureCommitment` from its own stored challenge and the active profile key. It never accepts a hash from the client.
 - Assertion check: signature over `H(authenticatorData || clientDataHash)` under the stored key, `rpIdHash == H(appId)`, counter greater than the stored counter.
-- World checks on `/human`, in order: response `signal_hash == hashSignal("0x"+captureCommitment)` → `nonce` is the one issued with this challenge's RP context → `session_id == profile.session_id` → `session_nullifier` not seen before → forward the unchanged result (including `integrity_bundle`) to `/api/v4/verify/{rp_id}` → store the session nullifier.
+- On the 4.0 path, World checks on `/human` are: `signal_hash == hashSignal("0x"+captureCommitment)` → nonce/environment/credential match → `session_id == profile.session_id` → `session_nullifier` not seen before → forward the unchanged result to `/api/v4/verify/{rp_id}` → store the session nullifier. On the staging legacy path, `/human` must explicitly reject a claimed fresh World proof and issue a certificate with no per-post World proof digest.
 - The RP context for the session proof is signed **without an action**. Every request gets a fresh nonce, since World rejects `duplicate_nonce`.
-- To post you need a session token, the device's App Attest key, the profile key (Face ID) and a session proof from the World ID that created the profile. A stolen token alone can't post anything.
+- To post you need a session token, the device's App Attest key and the profile key (Face ID). The 4.0 path additionally requires a session proof from the World ID that created the profile. A stolen token alone cannot post.
 
 <a id="feed"></a>
 
@@ -359,7 +371,7 @@ stateDiagram-v2
 
 | \# | Check | Catches |
 |----|----|----|
-| 1 | Profile cert: Ed25519 signature under the pinned issuer key, `v`, `uniquenessAction`, `worldSession: true` | Forged profile |
+| 1 | Profile cert: Ed25519 signature under the pinned issuer key, `v`, `uniquenessAction`, `credential`, `environment`, `worldSession` | Forged profile or misrepresented staging credential |
 | 2 | `profileCert.publicKey == post.authorPublicKey`, `profileCert.handle == post.handle`, `profileId` matches | **Swapped author** |
 | 3 | Capture cert: signature under the pinned key, `v`, `appId`, `profileId` and `keyVersion` match the profile cert | Forged or mismatched cert |
 | 4 | `H(downloaded bytes) == captureCert.imageSha256`, and the same for depth | **Edited image, certificate copied onto another image** |
@@ -368,6 +380,8 @@ stateDiagram-v2
 | 7 | Optional: `H(caption) == captureCert.captionSha256` | Edited caption |
 
 `PostView` states: `verifying` (no glyph), `verified` (glyph, tap opens the sheet), `unverified(reason)` (explicit crossed-out glyph). The three demo attacks are one byte flipped, author relabelled, and a certificate copied onto another image. They fail checks 4, 2/6 and 4 respectively.
+
+The signature checks prove the certificates came from Pupille's issuer. They do not independently query World. The sheet reads the issuer-signed `credential`, `environment`, `worldSession` and capture proof digest so a staging or legacy result cannot silently appear as a production, fresh Proof of Human result.
 
 > **Serve exact bytes.** No CDN resizing, recompression or metadata stripping. Make thumbnails on the phone.
 
@@ -387,11 +401,12 @@ Both certificates are JSON signed once by the issuer's Ed25519 key, then kept an
   "handle": "xyz",
   "keyVersion": 1,
   "publicKey": "BBER…",            // base64 X9.63
-  "credential": "selfie",
+  "credential": "proof_of_human",
+  "environment": "staging",
   "uniquenessAction": "pupille-profile-v1",
-  "worldSession": true,
+  "worldSession": true,          // false for the staging legacy fallback
   "profileCommitment": "cb3dfa39…",
-  "worldProofSha256": "…",
+  "worldProofSha256": "…",         // verified profile uniqueness proof
   "appAttestKeyId": "…",
   "validFrom": "2026-09-26T09:02:11Z"
 }
@@ -414,7 +429,7 @@ Both certificates are JSON signed once by the issuer's Ed25519 key, then kept an
   "challenge": "000102…1f",
   "assertionSha256": "8f7fe9bf…",
   "captureCommitment": "9e4351a4…",
-  "worldProofSha256": "…",
+  "worldProofSha256": "…",         // null for a staging legacy post without a fresh World proof
   "challengeIssuedAt": "…",
   "certifiedAt": "…"
 }
@@ -430,7 +445,7 @@ Both certificates are JSON signed once by the issuer's Ed25519 key, then kept an
   "depthUrl": null, "createdAt": "…" }
 ```
 
-Neither the nullifier nor the `session_id` appears in any certificate. They stay on the server. The certificates only say which World proofs were verified, and give their digests. `credential` comes from the verified response's `identifier` / `issuer_schema_id` (`11` = Selfie Check, `1` = Proof of Human).
+Neither the nullifier nor the `session_id` appears in a certificate. They stay on the server. Certificates record the verified credential, environment and proof digests. The backend derives `credential` from World's verified response (`proof_of_human` / schema `1`, or the legacy Orb identifier); it never trusts a client-supplied label. The VerificationSheet must display **Staging Human** for simulator identities and must say **No fresh World proof for this post** when the staging legacy fallback is used.
 
 <a id="ios"></a>
 
@@ -458,36 +473,36 @@ SwiftUI with Liquid Glass (iOS 26 SDK): edge-to-edge photos, monochrome type, gl
 | `CaptureHasher` | Every derivation in §06. The test vectors live here. | CryptoKit `SHA256` |
 | `AppAttestService` | Creates and attests the key on first launch. Makes assertions. | `DCAppAttestService` |
 | `ProfileKeyService` | Creates and loads the profile key and signs tagged messages. Exposes the public key and fingerprint. | `SecureEnclave.P256.Signing.PrivateKey`, `SecAccessControl(.privateKeyUsage, .biometryCurrentSet)` |
-| `WorldIDService` | Three calls: `proveUnique(signal:)`, `createSession(signal:)`, `proveSession(id:signal:)`. Opens the World App with `returnTo`, polls, maps IDKit error codes to typed outcomes. | IDKit Swift 4.0.11 generated bindings |
+| `WorldIDService` | `proveUnique(signal:)`, then `createSession(signal:)` and `proveSession(id:signal:)` on the 4.0 Proof of Human path. Opens World App in production or shows a connector URL for the staging simulator, polls, and maps IDKit errors. | IDKit Swift 4.x; generated bindings if required |
 | `ProofCoordinator` | Owns the profile-creation and Post & Verify state machines | `@Observable`, Swift concurrency |
 | `ProofVerifier` | Checks 1–7 from §09. Pure and unit-tested. | CryptoKit `P256`, `Curve25519` |
 | `FeedService` | Fetches posts and exact bytes, runs the verifier, publishes `[Post]` | `URLSession` |
 | `ProfileStore` | Current profile, key version, own posts, drafts | SwiftData, Keychain |
 | `APIClient` | Typed endpoints, session token | `URLSession` |
 
-### `WorldIDService` on IDKit Swift 4.0.11
+### `WorldIDService` on IDKit Swift 4.x
 
-The public wrapper doesn't expose sessions or the 4.0 Selfie preset yet, so call the generated (public) bindings. Sketch:
+Start with the public `proofOfHuman` preset and `environment: .staging` for the simulator. Check the installed Swift package for its current 4.0 session API before coding; use its public generated bindings if the wrapper still lacks the session methods. Conceptual sketch:
 
 ```text
 import IDKit
 
-func selfie(_ signal: String) -> ConstraintNode {        // signal = "0x" + hex(commitment)
-  .item(request: .withStringSignal(credentialType: .selfie, signal: signal))
+func proofOfHuman(_ signal: String) -> ConstraintNode { // signal = "0x" + hex(commitment)
+  .item(request: .withStringSignal(credentialType: .proofOfHuman, signal: signal))
 }
 
 // Session proof for a post (createSession is identical via IdKitBuilder.fromCreateSession)
 let cfg = IdKitSessionConfig(appId: appId, packageName: "app.pupille", packageVersion: "1.0",
                              rpContext: rpContext, actionDescription: nil, bridgeUrl: nil,
                              requireUserPresence: false, overrideConnectBaseUrl: nil,
-                             returnTo: "pupille://world-done", environment: .production)
+                             returnTo: "pupille://world-done", environment: .staging)
 let req = try IdKitBuilder.fromProveSession(sessionId: savedSessionId, config: cfg)
-                          .constraints(constraints: selfie(worldSignal))
+                          .constraints(constraints: proofOfHuman(worldSignal))
 await UIApplication.shared.open(URL(string: req.connectUrl())!)
 // poll req.pollStatusOnce() → .confirmed(result:) | .failed(error:) → send result JSON to backend unchanged
 ```
 
-Check the exact initializer labels against the generated file when you build, since this is generated code. Uniqueness proofs go through `IdKitBuilder.fromRequest(config: IdKitRequestConfig(action: "pupille-profile-v1", allowLegacyProofs: false, …))`.
+This sketch is a design contract, not copy-ready Swift: check the exact generated type and initializer names when installing IDKit. Uniqueness proofs use the `pupille-profile-v1` action. The full 4.0 path disallows legacy proofs because sessions cannot use them. A staging-only fallback uses the documented `orbLegacy` preset for the uniqueness request and does not invoke session methods.
 
 ### Model
 
@@ -511,7 +526,7 @@ Setup: `NSCameraUsageDescription`, `NSFaceIDUsageDescription`, the App Attest en
 
 ## 12 · Backend
 
-TypeScript (Hono) + Postgres on Railway or Fly. Images are stored as `bytea`, which is fine at demo scale.
+TypeScript (Hono) + Postgres on Railway or Fly. Images are stored as `bytea`, which is fine at demo scale. The API and schema below describe the target Proof of Human implementation. The currently checked-in backend still expects the earlier session-only profile shape and fixture World result; update it before a live staging proof test.
 
 ### API
 
@@ -520,13 +535,13 @@ TypeScript (Hono) + Postgres on Railway or Fly. Images are stored as `bytea`, wh
 | `POST /v1/attest/challenge`, `/v1/attest/register` | none | Attests the App Attest key: Apple chain, nonce, appId, AAGUID. Stores the key with counter 0. |
 | `GET /v1/handles/:h` | none | Checks availability |
 | `POST /v1/profiles/start` | attested key | Reserves the handle for 10 min and stores profileId and key. Returns `rpContext` signed **with** action `pupille-profile-v1`. |
-| `POST /v1/profiles/unique` | reservation | Uniqueness proof: signal_hash, nonce, verify, nullifier unused (else 409 with the existing handle). Returns an `rpContext` signed **without** an action for the session. |
-| `POST /v1/profiles/complete` | attested key + PoP | createSession proof: signal_hash, verify, store `session_id` and `sybil_score`. PoP and assertion. Returns the profile cert and a session token. |
-| `POST /v1/profiles/rotate` | new key PoP | proveSession proof over the new profileCommitment. `session_id` must match the profile. Returns cert v(n+1). |
+| `POST /v1/profiles/unique` | reservation | Proof of Human uniqueness result: signal, nonce, action, environment, credential, World verification and unused nullifier. On the 4.0 path returns an `rpContext` signed **without** an action for the session. On the staging legacy fallback, proceed without a session. |
+| `POST /v1/profiles/complete` | attested key + PoP | On the 4.0 path verify a Proof of Human `createSession` result and store `session_id`; on staging legacy require the prior verified Orb uniqueness result. Check PoP and assertion. Return profile cert and app session token with accurate credential/environment/session fields. |
+| `POST /v1/profiles/rotate` | new key PoP | 4.0 Proof of Human `proveSession` result over the new profileCommitment. `session_id` must match the profile. Return cert v(n+1). Unavailable for staging legacy profiles. |
 | `POST /v1/auth/challenge` → `/v1/auth/token` | profile key | Session token from a signed challenge |
 | `POST /v1/captures/challenge` | session | Single-use challenge (10 min), bound to the profile, key version and App Attest key |
 | `POST /v1/captures/:id/device` | session | Multipart image, depth, assertion and post signature. Recomputes everything and checks the assertion, counter and signature. Returns `rpContext`. |
-| `POST /v1/captures/:id/human` | session | Session proof: signal_hash, nonce, `session_id` matches the profile, `session_nullifier` unused, World verify. Issues the capture cert and publishes. |
+| `POST /v1/captures/:id/human` | session | For a 4.0 profile, require a Proof of Human session proof with matching signal/nonce/environment/session ID and unused session nullifier, then World verification. For a staging legacy profile, require device/key checks and issue a certificate explicitly marked without a fresh World proof. Publish only after the applicable checks. |
 | `GET /v1/feed` | none | Post payloads (§10) |
 | `GET /v1/posts/:id/image` | none | Exact bytes |
 | `GET /v1/profiles/:handle` | none | Profile certs for every key version, and the posts |
@@ -539,10 +554,10 @@ create extension if not exists citext;
 create table profiles (
   id          bytea primary key,                 -- 16-byte profileId
   nullifier   numeric(78,0) unique not null,     -- uniqueness proof (pupille-profile-v1); never leaves the server
-  session_id  text unique not null,              -- World session_<128 hex>; continuity anchor
-  sybil_score int,                               -- Selfie Check risk signal (stored, not shown)
+  session_id  text unique,                       -- 4.0 Proof of Human continuity; null for staging legacy
   handle      citext unique not null check (handle ~ '^[a-z0-9_]{3,20}$'),
-  credential  text not null,
+  credential  text not null,                    -- verified proof_of_human or staging legacy Orb
+  environment text not null check (environment in ('staging', 'production')),
   created_at  timestamptz not null default now()
 );
 
@@ -630,10 +645,10 @@ create table posts (
 | The server forges a post as @xyz | It can't produce `postSignature` without the Secure Enclave key | A malicious server could issue a false *profile cert* for a new key. Later: a public key-transparency log. |
 | Post an AI image through the app | Camera-only path. App Attest proves an unmodified app. | A compromised device injecting frames |
 | Photograph a screen | LiDAR flatness (should-have) | Stated openly |
-| Farm profiles or take over a handle | One profile per uniqueness nullifier. Rotation and posting require a proof of the profile's `session_id`. | Selfie Check is medium assurance and not strictly one account per person (World's wording). `sybil_score` is stored. The sheet shows the credential. |
+| Farm profiles or take over a handle | Orb-backed Proof of Human uniqueness nullifier; 4.0 rotation and posting require the profile's `session_id`. | A simulator Human identity is staging-only and cannot establish production uniqueness. A legacy staging profile has no session-based recovery or fresh World proof on posts. |
 | Replay a World proof, challenge or assertion | Signal = commitment (checked through `signal_hash`). Fresh RP nonce per request. `session_nullifier` replay table. Single-use challenge. Increasing App Attest counter. | None |
 | Stolen phone | Face ID on the profile key. The owner rotates the key from a new phone, which retires the old one. | Posts signed before the rotation stay valid |
-| Another person enrolled in the phone's Face ID | None at the protocol level | Stated limitation. The per-post World proof reduces it: the World App also has to approve. |
+| Another person enrolled in the phone's Face ID | None at the protocol level | Stated limitation. The 4.0 per-post World proof adds an approval; staging legacy posts do not have that step. |
 
 <a id="prize"></a>
 
@@ -641,21 +656,21 @@ create table posts (
 
 | Requirement | How we meet it | Evidence |
 |----|----|----|
-| IDKit in a working app | IDKit Swift in a native iOS app, with three World ID 4.0 flows: a uniqueness proof and `createSession` when @xyz is created, and `proveSession` at every post and key rotation | Live demo. `WorldIDService.swift` |
-| A credential with server verification | Selfie Check (Orb accepted). Every proof verified via `/api/v4/verify` against a signal the server computed. | `/profiles/complete`, `/captures/:id/human` |
-| Explain the trust moment and why the credential is the minimum | Claiming a pseudonym and publishing a photo. Selfie Check justified in the table below. | First 30 seconds of the video. README "Why Selfie Check". |
+| IDKit in a working app | IDKit Swift in a native iOS app: Proof of Human uniqueness and, if the 4.0 staging flow works end to end, Proof of Human sessions at profile creation and on posts/key rotation. | Live demo and verified backend result, not the device lab alone. |
+| A credential with server verification | Orb-backed Proof of Human. Every accepted proof is verified via `/api/v4/verify/{rp_id}` against a server-computed signal, action and expected environment. | `/profiles/unique`, `/profiles/complete`, `/captures/:id/human` as applicable. |
+| Explain the trust moment and credential | A pseudonym claims one unique Orb-backed human; a 4.0 session can authorize a specific photo. A staging simulator tests this path without an Orb visit. | First 30 seconds of video and VerificationSheet label. |
 | Success plus an alternative scenario | Published with badge / cancelled → draft / second profile refused / different human refused | Demo steps 2, 3, 7 |
 | Integration feedback | Log in §17 | README section |
 
-### Why Selfie Check is the minimum that covers it
+### Why Proof of Human covers the claim
 
 | Credential | Decision | Reason |
 |----|----|----|
-| Selfie Check | `required` | The threats are bots, AI farms, sockpuppets and impersonation. A live human behind each pseudonym, re-checked through sessions on every post, covers them. Sessions are World's documented flow for repeated Selfie Check verification. Anyone with World ID can get it, with no Orb or document needed. |
-| Proof of Human (Orb) | `accepted, shown` | Stronger uniqueness. Shown in the sheet, but requiring it would lock out most users. |
+| Proof of Human (Orb) | `required` | Pupille's one-profile-per-human claim requires the high-assurance unique-human credential backed by Orb enrollment. Use the `proofOfHuman` preset in production. |
+| Selfie Check | `not accepted` | It is a weaker camera-based credential and does not establish the Orb-level uniqueness Pupille promises. |
 | Passport | `not requested` | Adds nothing to "a human stands behind @xyz" |
 | Identity Check | `not requested` | Reveals attributes such as age or nationality. That's over-collection that would break the pseudonymity promise. |
-| `require_user_presence` | `profile creation + rotation` | A fresh liveness check where the identity is created or moved. Per post, approving in the World App is enough. |
+| `require_user_presence` | `rotation, if supported` | A fresh liveness step when moving a profile to a new device. Verify how it interacts with Proof of Human and the staging simulator before enabling it. |
 
 <a id="feedback"></a>
 
@@ -685,17 +700,17 @@ Deadline Sunday 09:00 JST. Do the riskiest parts first.
 
 | Milestone | iOS | Backend | Tier |
 |----|----|----|----|
-| M0: De-risk | Generated-bindings `WorldIDService`: one uniqueness proof, `createSession`, then `proveSession` with the saved ID, each with a `0x` signal and `returnTo`. App Attest on a real phone. The Secure Enclave key signs. | `signRequest` with and without an action. `signal_hash` check against the vectors. Verify returns `session_id`. App Attest attestation verifies. Secure Enclave signature verifies in Node (P1363). | `must, first` |
+| M0: De-risk | IDKit Swift Proof of Human uniqueness request with `environment: .staging` and simulator Human identity; then test 4.0 `createSession`/`proveSession` on the same identity. App Attest and Secure Enclave checks already pass on the real phone. | Server signs RP contexts, checks signal/action/nonce/environment/credential, forwards the unchanged result to World, and records the verified nullifier/session. Resolve the live v4 response shape before profile work. | `must, first` |
 | M1: Byte spec | `CaptureHasher` passes the vectors | Same in TypeScript | `must` |
 | M2: Profiles | `ProfileKeyService`, `CreateProfileView`, failure screens | Attest, handles, profiles start/unique/complete, profile cert, auth | `must` |
 | M3: Post & Verify | Camera, preview, `ProofCoordinator`, draft on cancel | Challenge, device, human, capture cert | `must` |
 | M4: Feed | `FeedView`, `PostView`, `ProofVerifier`, `VerificationSheet`, `ProfileView` | Feed, image, profile endpoints. Deploy. | `must` |
 | M5: Polish + attack demo | Liquid Glass pass, unverified glyph | Admin switches: flip byte, relabel author, copy cert | `should` |
 | M6: Depth, rotation | LiDAR flatness. New-iPhone rotation UI. | Flatness, rotation path | `should` |
-| Demo readiness | Switch to production IDKit. Both of you complete Selfie Check in the real World App. Dry run on the venue Wi-Fi. | (both) | `must` |
+| Demo readiness | Use a staging app and simulator Human identity on the Mac while Pupille runs on the iPhone. Show **Staging Human** in the UI; dry run on venue Wi-Fi. A production run requires an actual Orb-verified World ID. | (both) | `must` |
 | Submit | 2–4 min video (Mac screen capture with the iPhone mirrored), README with AI-usage disclosure and the feedback log, submit with at least 1 hour to spare | (both) | `must` |
 
-**Demo script (4 min):** (1) create @xyz (two World App approvals) → (2) take a photo, Post & Verify, cancel in World App → draft → (3) retry: Face ID, approve → the post appears with the glyph → (4) VerificationSheet → (5) second phone shows it verified → (6) three attacks: flip a byte, relabel it as @abc, copy the certificate onto another photo → each turns Unverified → (7) try to create a second profile with the same World ID → refused.
+**4.0 staging demo script (4 min):** (1) create @xyz with a simulator Human identity and verified Proof of Human uniqueness/session results → (2) take a photo, Post & Verify, cancel the simulator approval → draft → (3) retry: Face ID, approve → post appears with a **Staging Human** glyph → (4) VerificationSheet → (5) second phone checks it → (6) flip one byte or relabel the author → Unverified → (7) try a second profile with the same test identity → refused. If the simulator only completes legacy Orb requests, show the World proof at profile creation and clearly omit steps that need a 4.0 session; posts are signed by the World-bound profile key but have no fresh World proof.
 
 <a id="open"></a>
 
@@ -703,21 +718,20 @@ Deadline Sunday 09:00 JST. Do the riskiest parts first.
 
 ### Answered by the research
 
-- **Can the same human prove one action repeatedly?** No. In 4.0, nullifiers are one-time-use. Use session proofs, which this design now does.
-- **Is there a session or continuity proof?** Yes: `createSession` / `proveSession`, continuity through `session_id`.
+- **Can the same human prove one action repeatedly?** A uniqueness action is one-time per World ID. On the 4.0 path, use session proofs for recurring checks.
+- **Is there a session or continuity proof?** `createSession` / `proveSession` supply one for 4.0 Proof of Human when the actual Swift + simulator path supports it. Legacy Orb fallback has no session.
 - **How is the signal encoded and hashed?** `0x` + hex is decoded to bytes. `signal_hash = keccak256 >> 8`. The backend must compare it itself.
 - **Is there an RP signing helper outside JS?** Go has one. For Node, use `signRequest` from `@worldcoin/idkit-core/signing`.
 - **Does the verify result report the credential?** Yes: `identifier` and `issuer_schema_id` on each response.
 
 ### Still to ask at the World booth
 
-1.  Are 4.0 sessions and Selfie Check live in the **production** World App today? Which test environment supports them: staging simulator or sandbox (TestFlight access)?
-2.  Is it fine to use the generated `IdKitBuilder.fromCreateSession` / `fromProveSession` in Swift 4.0.11, or is a release with the wrapper re-enabled coming?
-3.  Does Selfie Check have to be enabled for our app in the Developer Portal?
-4.  If the same World ID calls `createSession` twice for one RP, does it get the same `session_id`? This tells us whether the separate uniqueness proof is strictly needed.
-5.  Can a stored proof be re-verified later through `/api/v4/verify`? If yes, publishing profile proofs would let anyone check a profile without trusting us.
+1. Does the simulator browser flow complete World ID 4.0 Proof of Human requests and sessions, as its documented MCP path does? We must test this with Pupille's connector URL.
+2. Which installed Swift SDK API supports `proofOfHuman`, `createSession` and `proveSession` today? If only generated bindings do, are they supported for production apps?
+3. Can the same World ID create another session for the same RP, and does that yield the same `session_id`? This affects account recovery policy.
+4. Can a stored proof be re-verified later through `/api/v4/verify`? If so, published profile proofs could be checked without trusting Pupille's issuer.
 
-> **Fallbacks, in order:** (1) If the Swift generated bindings don't work: the backend drives IDKit with `@worldcoin/idkit-core` 4.3.0 (full session and Selfie Check support), returns `connectorURI` to the phone and polls itself. (2) If sessions aren't available: keep the uniqueness proof when the profile is created and drop the per-post World proof. Authorship stays proven by the profile key, which was World-bound at creation. Only the "approved right now" freshness is lost, and "Published by verified human @xyz" stays true.
+> **Fallbacks, in order:** (1) If the Swift 4.0 session wrapper is unavailable, the backend can drive IDKit with `@worldcoin/idkit-core` and return a connector URL to the phone. (2) If the simulator browser flow only completes legacy Orb proofs, use `orbLegacy` in staging for profile uniqueness and omit the per-post World session. The verified Orb-level **staging** profile binding remains; the badge must distinguish it from a fresh per-post approval and from a production Orb credential. Neither fallback accepts Selfie Check for a Proof of Human badge.
 
 <a id="future"></a>
 

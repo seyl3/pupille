@@ -1,0 +1,9 @@
+.build/
+node_modules/
+*.log
+.DS_Store
+dist/
+tools/fake-phone/.test-root/
+**/xcuserdata/
+backend/.env.world.local
+backend/.secrets/

@@ -1,0 +1,32 @@
+{
+  "name": "pupille-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsx watch src/index.ts",
+    "start": "node dist/src/index.js",
+    "test": "vitest run --no-file-parallelism",
+    "migrate": "tsx src/db/migrate.ts",
+    "attest:probe": "node dist/src/attestProbe.js",
+    "world:probe": "node --env-file=.env.world.local dist/src/worldProbe.js"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.13.0",
+    "@peculiar/x509": "^2.1.0",
+    "@worldcoin/idkit-core": "4.3.0",
+    "cbor-x": "^1.6.0",
+    "hono": "^4.6.0",
+    "pg": "^8.13.0",
+    "reflect-metadata": "^0.2.2",
+    "ulid": "^2.3.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "@types/pg": "^8.11.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.6.0",
+    "vitest": "^2.1.0"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "_comment": "Test vectors from docs/ARCHITECTURE.md §06. Single source of truth read by both PupilleCoreTests (Swift) and backend/test (TypeScript) — symlinked/copied identically, never hand-duplicated, so the two languages cannot silently drift.",
+  "inputs": {
+    "imageBytesAscii": "pupille-test-image",
+    "depthBytesAscii": "pupille-test-depth",
+    "challengeHex": "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f",
+    "assertionAscii": "pupille-test-assertion",
+    "profileIdHex": "404142434445464748494a4b4c4d4e4f",
+    "profilePublicKeyHex": "0411111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111111",
+    "handle": "xyz"
+  },
+  "expected": {
+    "profileCommitment": "cb3dfa39b9aa0a69953457ddeccccce2d5e525616cceaa1371f525976bc3afcb",
+    "imageHash": "4e7044f1193044743df1880194fab538d607d219408c1092ff77eb45a2eaf665",
+    "depthHash": "5415cfd0583130a6191c532073f346d78d58a0ee528a04d0f231838e3224e241",
+    "clientDataHash": "653cc83bc26205563b5635f4e5b644186cdf50c4a49893af86b1219615c2bb27",
+    "assertionHash": "8f7fe9bf38c364dfbcf08aef9005b5d7b76d6f491f02c8831bb082d681f15bde",
+    "captureCommitment": "9e4351a4e2c238fb74d470a06201f16f7798670d8a9404e03aec14bf7e5f3b81",
+    "clientDataHashNoDepth": "3ef26e74876b28c66a4fd26c3eed63ce6256beaed8d9ee1edf4ea1bd0718a13c",
+    "captureCommitmentNoDepth": "cd4318a78cb7b8a68841b97407f51164b3db7ad06864f94acdf258a7d9bd35a8",
+    "signalHashProfileSignal": "0x004f635db677ba0a89f2b6fda2cb0e24ce391aefa22dc757f438aa73946d0cbe",
+    "signalHashWorldSignal": "0x006641a703b91c4d6ba5165df85946f44a05d182a9fdaf15c78981858362f9c8",
+    "signalHashWorldSignalNoDepth": "0x0053d9d11c6f8f38ae17fd5a7e2696f1cbe69b57b74559454e3afbd992b1ebc3"
+  }
+}
