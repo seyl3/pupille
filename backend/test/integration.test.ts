@@ -1,5 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from "vitest";
 import type pg from "pg";
+import { createHash } from "node:crypto";
 import { createApp } from "../src/app.js";
 import { makeTestPool, truncateAll } from "./testDb.js";
 import { buildAppAttestFixture, buildAssertionFixture } from "./fixtures/buildAppAttestFixture.js";
@@ -117,6 +118,35 @@ async function createProfile(handle: string) {
 }
 
 describe("full profile-creation → capture → publish → feed chain (real Postgres, fixture World proofs)", () => {
+  it("accepts a signed avatar once and rejects another key or replay", async () => {
+    const { profileId, key } = await createProfile("avatar_user");
+    const challengeResponse = await app.request("/v1/profiles/avatar/challenge", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profileId: hex(profileId) }),
+    });
+    expect(challengeResponse.status).toBe(200);
+    const { challengeId, challenge } = await challengeResponse.json() as { challengeId: string; challenge: string };
+    const image = Buffer.from([0xff, 0xd8, 1, 2, 0xff, 0xd9]);
+    const message = Buffer.concat([
+      Buffer.from("pupille:avatar:v1"), Buffer.from(challenge, "hex"),
+      createHash("sha256").update(image).digest(), profileId,
+    ]);
+    const upload = (signature: Buffer) => app.request("/v1/profiles/avatar", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ challengeId, imageBase64: image.toString("base64"), signature: hex(signature) }),
+    });
+    const otherKey = new SoftwareProfileKeyForTests();
+    expect((await upload(otherKey.sign(message))).status).toBe(400);
+    expect((await upload(key.sign(message))).status).toBe(200);
+    expect((await upload(key.sign(message))).status).toBe(400);
+    const avatar = await app.request("/v1/profiles/avatar_user/avatar");
+    expect(avatar.status).toBe(200);
+    expect(Buffer.from(await avatar.arrayBuffer())).toEqual(image);
+    const profile = await (await app.request("/v1/profiles/avatar_user")).json() as { avatarUrl: string; postCount: number };
+    expect(profile.avatarUrl).toBe("/v1/profiles/avatar_user/avatar");
+    expect(profile.postCount).toBe(0);
+  });
+
   it("creates a profile end to end", async () => {
     const { handle, completeBody } = await createProfile("alice");
     expect((completeBody as any).handle).toBe(handle);
@@ -360,6 +390,36 @@ describe("full profile-creation → capture → publish → feed chain (real Pos
     expect(imageRes.status).toBe(200);
     const downloadedBytes = Buffer.from(await imageRes.arrayBuffer());
     expect(downloadedBytes.equals(imageBytes)).toBe(true);
+
+    const reactionStart = await app.request(`/v1/posts/${postId}/reaction/challenge`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profileId: hex(profileId) }),
+    });
+    expect(reactionStart.status).toBe(200);
+    const reactionChallenge = await reactionStart.json() as { challengeId: string; challenge: string };
+    const reactionHash = createHash("sha256").update(Buffer.concat([
+      Buffer.from("pupille:reaction:v1"), Buffer.from(postId), Buffer.from("nerd"),
+      Buffer.from(reactionChallenge.challenge, "hex"),
+    ])).digest();
+    const { assertionCbor: reactionAssertion } = await buildAssertionFixture({
+      appId: "test.pupille", clientDataHash: reactionHash, counter: 3, credentialPrivateKey,
+    });
+    const reactionBody = JSON.stringify({
+      challengeId: reactionChallenge.challengeId, reaction: "nerd",
+      assertionBase64: reactionAssertion.toString("base64"),
+    });
+    const react = () => app.request(`/v1/posts/${postId}/reaction`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: reactionBody,
+    });
+    const reactionResponse = await react();
+    expect(reactionResponse.status).toBe(200);
+    expect((await reactionResponse.json() as any).reactions.nerd).toBe(1);
+    expect((await react()).status).toBe(400);
+    const reactedFeed = await (await app.request("/v1/feed", {
+      headers: { "x-profile-id": hex(profileId) },
+    })).json() as any[];
+    expect(reactedFeed[0].reactions.nerd).toBe(1);
+    expect(reactedFeed[0].myReaction).toBe("nerd");
   });
 
   it("rejects a replayed session_nullifier on a second /human call", async () => {

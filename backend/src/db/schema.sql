@@ -13,6 +13,17 @@ create table if not exists profiles (
 );
 alter table profiles alter column session_id drop not null;
 alter table profiles add column if not exists app_attest_key_id text;
+alter table profiles add column if not exists avatar_image bytea;
+alter table profiles add column if not exists avatar_content_type text;
+alter table profiles add column if not exists avatar_updated_at timestamptz;
+
+create table if not exists profile_avatar_challenges (
+  id text primary key,
+  profile_id bytea not null references profiles(id),
+  challenge bytea not null,
+  expires_at timestamptz not null,
+  used boolean not null default false
+);
 
 create table if not exists profile_keys (
   profile_id   bytea not null references profiles(id),
@@ -69,4 +80,21 @@ create table if not exists posts (
   post_signature bytea not null, capture_cert bytea not null, capture_cert_sig bytea not null,
   created_at timestamptz not null default now(),
   foreign key (profile_id, key_version) references profile_keys(profile_id, key_version)
+);
+
+create table if not exists post_reactions (
+  post_id text not null references posts(id) on delete cascade,
+  profile_id bytea not null references profiles(id) on delete cascade,
+  reaction text not null check (reaction in ('nerd', 'heart', 'aubergine', 'japan')),
+  updated_at timestamptz not null default now(),
+  primary key (post_id, profile_id)
+);
+
+create table if not exists reaction_challenges (
+  id text primary key,
+  post_id text not null references posts(id) on delete cascade,
+  profile_id bytea not null references profiles(id) on delete cascade,
+  challenge bytea not null,
+  expires_at timestamptz not null,
+  used boolean not null default false
 );
