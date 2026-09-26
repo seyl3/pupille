@@ -25,7 +25,7 @@ export async function makeTestPool(): Promise<pg.Pool> {
 
 export async function truncateAll(pool: pg.Pool) {
   await pool.query(`
-    truncate table posts, capture_challenges, app_attest_keys, world_session_nullifiers,
+    truncate table posts, capture_challenges, demo_reset_challenges, app_attest_keys, world_session_nullifiers,
       profile_sessions, profile_keys, profiles restart identity cascade
   `);
 }

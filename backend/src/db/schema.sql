@@ -25,6 +25,14 @@ create table if not exists profile_avatar_challenges (
   used boolean not null default false
 );
 
+create table if not exists demo_reset_challenges (
+  id text primary key,
+  profile_id bytea not null references profiles(id) on delete cascade,
+  challenge bytea not null,
+  expires_at timestamptz not null,
+  used boolean not null default false
+);
+
 create table if not exists profile_keys (
   profile_id   bytea not null references profiles(id),
   key_version  int not null,

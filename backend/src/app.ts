@@ -6,6 +6,7 @@ import { captureRoutes } from "./routes/captures.js";
 import { feedRoutes } from "./routes/feed.js";
 import { authRoutes } from "./routes/auth.js";
 import { onboardRoutes } from "./routes/onboard.js";
+import { demoResetRoutes } from "./routes/demoReset.js";
 import { issuerPublicKeyDer } from "./issuer.js";
 
 export function createApp(pool: pg.Pool) {
@@ -22,6 +23,7 @@ export function createApp(pool: pg.Pool) {
   v1.route("/", feedRoutes(pool)); // /feed, /posts/:id/image, /profiles/:handle
   v1.route("/auth", authRoutes(pool));
   v1.route("/onboard", onboardRoutes(pool));
+  v1.route("/dev/reset", demoResetRoutes(pool));
 
   v1.get("/issuer-public-key", (c) => c.json({ publicKeyDerBase64: issuerPublicKeyDer().toString("base64") }));
 

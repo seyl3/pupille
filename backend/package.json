@@ -7,7 +7,7 @@
     "build": "tsc -p tsconfig.json",
     "dev": "tsx watch src/index.ts",
     "start": "node dist/src/index.js",
-    "test": "vitest run",
+    "test": "vitest run --no-file-parallelism",
     "migrate": "tsx src/db/migrate.ts",
     "attest:probe": "node dist/src/attestProbe.js",
     "world:probe": "node --env-file=.env.world.local dist/src/worldProbe.js"
