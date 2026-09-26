@@ -11,6 +11,7 @@ struct ContentView: View {
     @State private var caption = ""
     @State private var selectedTab = 0
     @State private var readyToClaimHandle = false
+    @State private var exploringAsGuest = false
     @State private var selectedAvatar: PhotosPickerItem?
     @State private var selectedAuditPost: FeedPost?
     @State private var showPublishSuccess = false
@@ -19,7 +20,7 @@ struct ContentView: View {
 
     var body: some View {
         Group {
-            if model.handle.isEmpty {
+            if model.handle.isEmpty && !exploringAsGuest {
                 onboarding
             } else {
                 mainTabs
@@ -75,6 +76,11 @@ struct ContentView: View {
                     Button("Continue with World ID") { readyToClaimHandle = true }
                         .buttonStyle(.borderedProminent)
                 }
+                Button("Explore verified feed") {
+                    selectedTab = 0
+                    exploringAsGuest = true
+                }
+                .buttonStyle(.glass)
                 if !model.status.isEmpty { Text(model.status).font(.footnote).textSelection(.enabled) }
                 Spacer()
                 DisclosureGroup("Development server") {
@@ -191,6 +197,19 @@ struct ContentView: View {
             NavigationStack {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 26) {
+                        if model.handle.isEmpty {
+                            Image("PupilleIcon")
+                                .resizable().scaledToFit().frame(width: 100, height: 100)
+                            Text("Join the feed")
+                                .font(.largeTitle.bold())
+                            Text("Browse and verify captures now. Create a World verified profile to publish photos or react.")
+                                .foregroundStyle(.secondary)
+                            Button("Continue with World ID") {
+                                readyToClaimHandle = true
+                                exploringAsGuest = false
+                            }
+                            .buttonStyle(.glassProminent)
+                        } else {
                         HStack(alignment: .center, spacing: 18) {
                             let profileHandle = model.handle
                             PhotosPicker(selection: $selectedAvatar, matching: .images) {
@@ -269,6 +288,7 @@ struct ContentView: View {
                                 NavigationLink("Device checks") { DeviceLabView() }
                             }.padding(.top, 10)
                         }.font(.footnote).foregroundStyle(.secondary)
+                        }
                     }
                     .padding(20)
                 }
@@ -353,10 +373,14 @@ struct ContentView: View {
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(.glass)
-                    .disabled(model.reactingPostIDs.contains(post.id))
+                    .disabled(model.handle.isEmpty || model.reactingPostIDs.contains(post.id))
                     .opacity(model.myReactions[post.id] == kind ? 1 : 0.72)
                     .accessibilityLabel("React \(kind), \(model.reactionCounts[post.id]?[kind] ?? 0) reactions")
                 }
+            }
+            if model.handle.isEmpty {
+                Text("Create a World verified profile to react")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .padding(14)
