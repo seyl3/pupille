@@ -25,8 +25,8 @@ struct ContentView: View {
         NavigationStack {
             VStack(alignment: .leading, spacing: 24) {
                 Spacer()
-                Image(systemName: "camera.aperture")
-                    .font(.system(size: 66, weight: .thin))
+                Image("PupilleLogo")
+                    .resizable().scaledToFit().frame(width: 110, height: 110)
                 Text("Pupille").font(.system(size: 52, weight: .bold))
                 Text("Photos with a human behind the camera.")
                     .font(.title2).foregroundStyle(.secondary)
@@ -67,9 +67,14 @@ struct ContentView: View {
                 ScrollView {
                     LazyVStack(spacing: 18) {
                         if model.posts.isEmpty {
-                            ContentUnavailableView("No photos yet", systemImage: "camera.aperture",
-                                description: Text("Human verified captures will appear here."))
-                                .padding(.top, 80)
+                            VStack(spacing: 12) {
+                                Image("PupilleLogo")
+                                    .resizable().scaledToFit().frame(width: 104, height: 104)
+                                Text("No photos yet").font(.title2.bold())
+                                Text("Human verified captures will appear here.")
+                                    .foregroundStyle(.secondary)
+                            }
+                            .frame(maxWidth: .infinity).padding(.top, 80)
                         }
                         ForEach(model.posts) { post in
                             VStack(alignment: .leading, spacing: 10) {
@@ -108,7 +113,8 @@ struct ContentView: View {
                         Image(uiImage: image).resizable().scaledToFit()
                             .frame(maxHeight: 420).clipShape(RoundedRectangle(cornerRadius: 18))
                     } else {
-                        Image(systemName: "camera.aperture").font(.system(size: 60))
+                        Image("PupilleLogo")
+                            .resizable().scaledToFit().frame(width: 92, height: 92)
                     }
                     Text("Capture through Pupille").font(.title2.bold())
                     Text("Your photo will be bound to the device and your World-backed profile key.")

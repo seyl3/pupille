@@ -25,7 +25,6 @@ struct CameraCheckView: View {
                     .accessibilityLabel("Captured photo preview")
             } else {
                 CameraPreview(session: camera.session).ignoresSafeArea(edges: .bottom)
-                grid.padding(.horizontal, 24).padding(.vertical, 110).allowsHitTesting(false)
             }
             VStack(spacing: 0) {
                 topBar
@@ -61,10 +60,6 @@ struct CameraCheckView: View {
                 Image(systemName: "xmark").font(.system(size: 16, weight: .bold))
                     .frame(width: 48, height: 48).background(.black.opacity(0.55), in: Circle())
             }.accessibilityLabel("Close camera")
-            Spacer()
-            Text(camera.imageData == nil ? "PUPILLE  /  CAMERA" : "REVIEW CAPTURE")
-                .font(.system(size: 12, weight: .bold, design: .monospaced))
-                .tracking(2).shadow(radius: 5)
             Spacer()
             if camera.imageData == nil && camera.hasFlash {
                 Button { camera.cycleFlash() } label: {
@@ -119,9 +114,6 @@ struct CameraCheckView: View {
                 .disabled(!camera.isReady || camera.isCapturing)
                 .accessibilityLabel("Switch to \(camera.position == .back ? "front" : "rear") camera")
             }.buttonStyle(.plain)
-            Text(camera.position == .back ? "REAR CAMERA" : "FRONT CAMERA")
-                .font(.system(size: 11, weight: .semibold, design: .monospaced))
-                .tracking(2).foregroundStyle(.white.opacity(0.72))
         }
         .padding(.horizontal, 26).padding(.top, 20).padding(.bottom, 24)
         .background(.black.opacity(0.9))
@@ -140,20 +132,6 @@ struct CameraCheckView: View {
         .padding(.horizontal, 24).padding(.vertical, 30).background(.black.opacity(0.9))
     }
 
-    private var grid: some View {
-        GeometryReader { proxy in
-            Path { path in
-                for fraction in [1.0 / 3.0, 2.0 / 3.0] {
-                    let x = proxy.size.width * fraction
-                    let y = proxy.size.height * fraction
-                    path.move(to: CGPoint(x: x, y: 0))
-                    path.addLine(to: CGPoint(x: x, y: proxy.size.height))
-                    path.move(to: CGPoint(x: 0, y: y))
-                    path.addLine(to: CGPoint(x: proxy.size.width, y: y))
-                }
-            }.stroke(.white.opacity(0.24), lineWidth: 0.7)
-        }
-    }
 }
 
 private struct CameraPreview: UIViewRepresentable {
@@ -314,7 +292,6 @@ private final class CameraCheckSession: NSObject, ObservableObject, AVCapturePho
         isCapturing = true
         error = nil
         let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
-        settings.photoQualityPrioritization = .quality
         settings.flashMode = hasFlash && output.supportedFlashModes.contains(flashMode) ? flashMode : .off
         output.capturePhoto(with: settings, delegate: self)
     }
