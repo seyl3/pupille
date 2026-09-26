@@ -1,7 +1,7 @@
 import "reflect-metadata";
 import { webcrypto } from "node:crypto";
 import { X509CertificateGenerator, cryptoProvider } from "@peculiar/x509";
-import { writeFileSync } from "node:fs";
+import { writeFileSync, mkdirSync } from "node:fs";
 
 cryptoProvider.set(webcrypto as unknown as Crypto);
 
@@ -13,6 +13,7 @@ cryptoProvider.set(webcrypto as unknown as Crypto);
  */
 async function main() {
   const outDir = process.argv[2] ?? ".";
+  mkdirSync(outDir, { recursive: true });
   const alg = { name: "ECDSA", namedCurve: "P-256", hash: "SHA-256" } as EcdsaParams & EcKeyGenParams;
   const keys = await webcrypto.subtle.generateKey(alg, true, ["sign", "verify"]);
   const cert = await X509CertificateGenerator.createSelfSigned({
