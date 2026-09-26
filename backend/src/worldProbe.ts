@@ -77,7 +77,15 @@ async function verifyWithWorld(result: Record<string, unknown>): Promise<void> {
   const body = asRecord(await response.json());
   if (!response.ok || body.success !== true) {
     const code = typeof body.code === "string" ? body.code : `HTTP ${response.status}`;
-    throw new Error(`World verification failed: ${code}`);
+    const detail = typeof body.detail === "string" ? `: ${body.detail}` : "";
+    const failedResults = Array.isArray(body.results)
+      ? body.results.flatMap((item) => {
+          const result = asRecord(item);
+          return typeof result.code === "string" ? [result.code] : [];
+        })
+      : [];
+    const resultCodes = failedResults.length ? ` (proof results: ${failedResults.join(", ")})` : "";
+    throw new Error(`World verification failed (HTTP ${response.status}): ${code}${detail}${resultCodes}`);
   }
   if (body.environment !== "staging" || body.action !== action) {
     throw new Error("World verified a different environment or action");
