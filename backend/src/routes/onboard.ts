@@ -147,7 +147,14 @@ export function onboardRoutes(pool: pg.Pool) {
       await client.query("COMMIT");
     } catch (error) {
       await client.query("ROLLBACK");
-      if ((error as {code?: string}).code === "23505") return c.json({ error: "human_or_handle_already_registered" }, 409);
+      if ((error as {code?: string}).code === "23505") {
+        const constraint = (error as {constraint?: string}).constraint;
+        if (constraint === "world_session_nullifiers_pkey" || constraint === "profiles_nullifier_key") {
+          return c.json({ error: "human_already_registered" }, 409);
+        }
+        if (constraint === "profiles_handle_key") return c.json({ error: "handle_taken" }, 409);
+        return c.json({ error: "profile_already_registered" }, 409);
+      }
       throw error;
     } finally {
       client.release();

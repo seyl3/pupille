@@ -192,6 +192,39 @@ describe("full profile-creation → capture → publish → feed chain (real Pos
     const profile = await pool.query("select credential, session_id, app_attest_key_id from profiles where id=$1", [profileId]);
     expect(profile.rows[0]).toMatchObject({ credential: "proof_of_human", session_id: null, app_attest_key_id: attestKeyId });
 
+    const secondKey = new SoftwareProfileKeyForTests();
+    const secondId = Buffer.alloc(16, 43);
+    const secondHandle = "another_human";
+    const secondStartResponse = await app.request("/v1/onboard/start", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profileId: hex(secondId), publicKey: hex(secondKey.publicKeyX963),
+        handle: secondHandle, attestKeyId }),
+    });
+    expect(secondStartResponse.status).toBe(200);
+    const secondStart = await secondStartResponse.json() as {
+      reservationId: string; rpContext: { nonce: string }; worldSignal: string;
+    };
+    const secondCommitment = profileCommitment(secondId, secondKey.publicKeyX963, secondHandle);
+    const { assertionCbor: secondAssertion } = await buildAssertionFixture({
+      appId: "test.pupille", clientDataHash: profileAssertClientDataHash(secondCommitment),
+      counter: 2, credentialPrivateKey,
+    });
+    const secondDevice = await app.request("/v1/onboard/device", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reservationId: secondStart.reservationId,
+        profilePoP: hex(secondKey.sign(profilePoPMessage(secondCommitment))),
+        assertionBase64: secondAssertion.toString("base64") }),
+    });
+    expect(secondDevice.status).toBe(200);
+    const sameHumanProof = { ...buildWorldProofFixture({ signal: secondStart.worldSignal, kind: "uniqueness" }),
+      action: "pupille-profile-v1", nonce: secondStart.rpContext.nonce, nullifier: proof.nullifier };
+    const duplicateHuman = await app.request("/v1/onboard/complete", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reservationId: secondStart.reservationId, result: sameHumanProof }),
+    });
+    expect(duplicateHuman.status).toBe(409);
+    expect(await duplicateHuman.json()).toEqual({ error: "human_already_registered" });
+
     const challengeRes = await app.request("/v1/captures/challenge", {
       method: "POST", headers: { "x-profile-id": hex(profileId) },
     });

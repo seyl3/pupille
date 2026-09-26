@@ -479,7 +479,16 @@ final class AppModel: ObservableObject {
         guard let http = response as? HTTPURLResponse else { throw AppError.invalidResponse }
         if !(200..<300).contains(http.statusCode) {
             let error = try? JSONDecoder().decode(APIError.self, from: data)
-            throw AppError.server(error?.error ?? "HTTP \(http.statusCode)")
+            let message: String
+            switch error?.error {
+            case "human_already_registered":
+                message = "This World test identity already has a Pupille profile. Select another test identity in World Simulator and try again."
+            case "handle_taken":
+                message = "That handle is already taken. Choose another name."
+            default:
+                message = error?.error ?? "HTTP \(http.statusCode)"
+            }
+            throw AppError.server(message)
         }
         return try JSONDecoder().decode(T.self, from: data)
     }

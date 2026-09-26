@@ -19,6 +19,8 @@ The script starts the local PostgreSQL 17 instance, applies the schema, builds t
 5. Open **Profile**, tap the avatar, and choose a photo. Face ID authorizes a one-time profile-key signature for the upload. The avatar is a chosen profile image, not a verified Pupille camera capture; relaunch and check that it persists. The profile shows your post count and your published photo grid.
 6. After publishing, the Capture draft clears and a short success animation appears. On the Feed, tap a photo's green check or red X to see each verification result. Try the four reactions (🤓, ❤️, 🍆, 🇯🇵); each profile has one reaction per post and can change it.
 
+For a second tester, use a separate World Simulator Human identity. In the browser approving their request, open **Settings → Switch test identity → Add identity**, select it, and confirm its identity commitment differs from the first tester's. A new handle or iPhone alone will not change World's per-identity, per-action nullifier. Start a fresh Pupille signup after switching so the simulator deep link uses the new active identity.
+
 ## What the badge means
 
 For this build, World verifies **Proof of Human at profile creation**. Current native IDKit Swift exposes the 4.0 uniqueness request but not the public session flow, so posts rely on the World-bound profile key plus a fresh App Attest assertion; there is **no per-post World proof**. The camera path has no Photo Library import, but App Attest cannot prove the physical scene is truthful. A staging Human test identity is not a production Orb account.
