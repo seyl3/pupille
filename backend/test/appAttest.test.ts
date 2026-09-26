@@ -1,4 +1,8 @@
+import "reflect-metadata";
 import { describe, it, expect } from "vitest";
+import { webcrypto, createHash } from "node:crypto";
+import { encode as cborEncode } from "cbor-x";
+import { X509CertificateGenerator, Extension } from "@peculiar/x509";
 import { verifyAttestation, AppAttestVerificationError } from "../src/appattest/verify.js";
 import { buildAppAttestFixture } from "./fixtures/buildAppAttestFixture.js";
 
@@ -51,5 +55,74 @@ describe("App Attest verification (against a hand-built fixture, NOT a real Appl
     await expect(
       verifyAttestation(fixture.attestationObjectCbor, wrongClientDataHash, APP_ID, rootPem)
     ).rejects.toThrow(/nonce/);
+  });
+
+  it("rejects a nonce extension whose bytes contain the right nonce but are not real DER SEQUENCE{[1] OCTET STRING} structure", async () => {
+    // This is exactly the case a substring-containment check (the pre-fix implementation) could
+    // not distinguish from a genuine extension: the correct nonce bytes are present, but not
+    // wrapped in Apple's documented ASN.1 shape. The real asn1js structural parse must still reject it.
+    const clientDataHash = Buffer.alloc(32, 0x42);
+    const alg = { name: "ECDSA", namedCurve: "P-256", hash: "SHA-256" } as EcdsaParams & EcKeyGenParams;
+    const rootKeys = await webcrypto.subtle.generateKey(alg, true, ["sign", "verify"]);
+    const rootCert = await X509CertificateGenerator.createSelfSigned({
+      serialNumber: "01",
+      name: "CN=Test Root CA (NOT Apple), O=PupilleTest",
+      notBefore: new Date(Date.now() - 86400_000),
+      notAfter: new Date(Date.now() + 86400_000 * 3650),
+      signingAlgorithm: alg,
+      keys: rootKeys,
+      extensions: [],
+    });
+    const credentialKeys = await webcrypto.subtle.generateKey(alg, true, ["sign", "verify"]);
+
+    const rpIdHash = createHash("sha256").update(APP_ID, "utf8").digest();
+    const flags = Buffer.from([0x40]);
+    const counter = Buffer.alloc(4);
+    const aaguid = Buffer.alloc(16);
+    const credId = Buffer.from("test-key-id-0123456789ab", "utf8").subarray(0, 20);
+    const credIdLen = Buffer.alloc(2);
+    credIdLen.writeUInt16BE(credId.length);
+    const pubKeyJwk = await webcrypto.subtle.exportKey("jwk", credentialKeys.publicKey);
+    const coseKey = new Map<number, unknown>([
+      [1, 2],
+      [3, -7],
+      [-1, 1],
+      [-2, Buffer.from(pubKeyJwk.x!, "base64url")],
+      [-3, Buffer.from(pubKeyJwk.y!, "base64url")],
+    ]);
+    const credPubKeyCbor = Buffer.from(cborEncode(coseKey));
+    const authData = Buffer.concat([rpIdHash, flags, counter, aaguid, credIdLen, credId, credPubKeyCbor]);
+    const nonce = createHash("sha256").update(Buffer.concat([authData, clientDataHash])).digest();
+
+    // Malformed on purpose: the nonce bytes are simply concatenated with junk, not wrapped in
+    // SEQUENCE { [1] EXPLICIT OCTET STRING }. A substring check would find `nonce` inside this
+    // and incorrectly accept it.
+    const malformedExtensionValue = Buffer.concat([Buffer.from([0xde, 0xad, 0xbe, 0xef]), nonce, Buffer.from([0x00])]);
+    const nonceExtension = new Extension("1.2.840.113635.100.8.2", false, malformedExtensionValue);
+
+    const leafCert = await X509CertificateGenerator.create({
+      serialNumber: "02",
+      subject: "CN=Test Leaf (NOT Apple), O=PupilleTest",
+      issuer: rootCert.subject,
+      notBefore: new Date(Date.now() - 86400_000),
+      notAfter: new Date(Date.now() + 86400_000 * 30),
+      signingAlgorithm: alg,
+      publicKey: credentialKeys.publicKey,
+      signingKey: rootKeys.privateKey,
+      extensions: [nonceExtension],
+    });
+
+    const attestationObjectCbor = Buffer.from(
+      cborEncode({
+        fmt: "apple-appattest",
+        attStmt: { x5c: [Buffer.from(leafCert.rawData)], receipt: Buffer.from("fixture-receipt-bytes", "utf8") },
+        authData,
+      })
+    );
+    const rootPem = toPem(Buffer.from(rootCert.rawData));
+
+    await expect(verifyAttestation(attestationObjectCbor, clientDataHash, APP_ID, rootPem)).rejects.toThrow(
+      AppAttestVerificationError
+    );
   });
 });

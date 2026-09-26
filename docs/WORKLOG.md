@@ -10,7 +10,7 @@ cannot provide, and is listed under HANDOFF below rather than attempted.
 **Proof commands, all exit 0 on this machine:**
 
 ```
-cd backend && npm test                      # 22/22 tests, real Postgres
+cd backend && npm test                      # 23/23 tests, real Postgres
 cd ios/PupilleCore && swift test             # 9/9 tests
 cd tools/fake-phone && DATABASE_URL=... ./run.sh   # full E2E chain over real HTTP
 ```
@@ -115,11 +115,6 @@ What's a stand-in, always clearly labeled in the source as such:
   correctness), but has never parsed a genuine Apple-issued attestation
   object. Two specific gaps, both called out in
   `backend/src/appattest/verify.ts`'s doc comments:
-  - The Apple nonce certificate extension (OID 1.2.840.113635.100.8.2) is
-    checked via a raw-bytes substring containment check, not a full ASN.1
-    parse of the wrapping `SEQUENCE { [1] EXPLICIT OCTET STRING }` structure.
-    Sufficient for the fixture, not verified against Apple's real DER
-    encoding.
   - App Attest **assertion** verification (as opposed to the one-time
     `attestKey` attestation checked at `/v1/attest/register`) is not wired
     into `/v1/captures/:id/device` — that endpoint verifies `postSignature`
@@ -158,15 +153,41 @@ What's a stand-in, always clearly labeled in the source as such:
   before the World proof for exactly this reason).
 - **`HttpWorldVerifyClient`** (the real, non-fixture World API client) — see
   HANDOFF above.
-- **The Apple nonce extension's exact DER structure** — see HANDOFF above;
-  the current check is a substring containment check on the raw extension
-  bytes, sufficient for the hand-built fixture, not a full ASN.1 parse
-  verified against Apple's real encoding.
 - **`npm audit`** reports 5 vulnerabilities (3 moderate, 1 high, 1 critical),
   all inside vitest's dev-only dependency chain (esbuild/vite's dev-server
   CORS advisory) — not reachable from production code or from how tests are
   actually run here. Not fixed this session; flagged rather than silently
   ignored.
+
+## Resolved after initial handoff
+
+- **`tools/fake-phone/run.sh` leaked its backend process on every run.** The
+  `trap 'kill $BACKEND_PID' EXIT` only killed `npm exec`'s own PID, not the
+  `tsx`/`node` subprocesses `npm exec` spawns underneath it, so every
+  invocation left a real backend process listening on :8787 after the script
+  exited. Symptom actually hit in this session: a second run failed with
+  `chain_invalid` because it silently talked to the *previous* run's stale
+  backend process (pinned to that run's now-deleted test root) instead of the
+  freshly started one — a confusing, non-deterministic failure that looked
+  like a real regression but was purely a process-leak artifact. Fixed by
+  starting the backend with `setsid` (its own process group) and killing the
+  whole group (`kill -TERM -$BACKEND_PID`) on exit; verified clean with
+  `pgrep` after a piped invocation (`./run.sh 2>&1 | tail`), which is exactly
+  the shape that leaked before.
+
+- **Apple nonce extension parsing** was upgraded from a raw-bytes substring
+  containment check to a real DER structural parse (via `asn1js`, already a
+  transitive dependency of `@peculiar/x509`) of the documented
+  `SEQUENCE { [1] EXPLICIT OCTET STRING }` shape
+  (`backend/src/appattest/verify.ts`'s `parseAppleNonceExtension`). Proven by
+  a new test (`backend/test/appAttest.test.ts`, "rejects a nonce extension
+  whose bytes contain the right nonce but are not real DER
+  SEQUENCE{[1] OCTET STRING} structure") that constructs exactly the case a
+  substring check could not catch — the correct nonce bytes present, but not
+  wrapped in Apple's real ASN.1 shape — and confirms the new parser rejects
+  it. Still not verified against a genuine Apple-issued certificate's actual
+  DER encoding (no physical iPhone), but the parser now enforces real
+  structure rather than a heuristic. `npm test`: 23/23.
 
 ## Design decisions worth flagging for review
 

@@ -28,9 +28,13 @@ export PUPILLE_WORLD_API_FIXTURE_MODE=1
 export PUPILLE_APP_ATTEST_TEST_ROOT_PEM
 PUPILLE_APP_ATTEST_TEST_ROOT_PEM="$(cat "$TEST_ROOT_DIR/test-root-cert.pem")"
 export PORT
-(cd "$BACKEND_DIR" && DATABASE_URL="$DATABASE_URL" npx tsx src/index.ts > /tmp/pupille-fake-phone-backend.log 2>&1) &
+# Run in its own process group (setsid) so the trap can kill `npm exec`'s whole subprocess tree
+# (npm/tsx/node) via a negative PID, not just the immediate child — killing only $! left orphaned
+# node processes holding the port across runs, which then caused confusing failures (an old
+# process's stale test-root pin vs. a new run's freshly generated one) that looked like real bugs.
+setsid bash -c "cd '$BACKEND_DIR' && DATABASE_URL='$DATABASE_URL' exec npx tsx src/index.ts" > /tmp/pupille-fake-phone-backend.log 2>&1 &
 BACKEND_PID=$!
-trap 'kill $BACKEND_PID 2>/dev/null || true' EXIT
+trap 'kill -TERM -$BACKEND_PID 2>/dev/null || true' EXIT
 
 echo "== waiting for backend to become healthy =="
 for i in $(seq 1 30); do

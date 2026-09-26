@@ -63,9 +63,9 @@ export async function buildAppAttestFixture(opts: { appId: string; clientDataHas
 
   const nonce = createHash("sha256").update(Buffer.concat([authData, opts.clientDataHash])).digest();
 
-  // Apple's nonce extension (1.2.840.113635.100.8.2) wraps the nonce as
-  // SEQUENCE { [1] EXPLICIT OCTET STRING } — approximated here as a DER SEQUENCE containing
-  // a context-tag [1] wrapping an OCTET STRING, sufficient for our parser's containment check.
+  // Apple's nonce extension (1.2.840.113635.100.8.2): SEQUENCE { [1] EXPLICIT OCTET STRING }.
+  // Hand-built as real DER (tags 0x30 SEQUENCE, 0xa1 context [1] constructed, 0x04 OCTET STRING)
+  // so it round-trips through verify.ts's real asn1js structural parse, not just a byte match.
   const octetString = Buffer.concat([Buffer.from([0x04, nonce.length]), nonce]);
   const explicitTag1 = Buffer.concat([Buffer.from([0xa1, octetString.length]), octetString]);
   const sequence = Buffer.concat([Buffer.from([0x30, explicitTag1.length]), explicitTag1]);

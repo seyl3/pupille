@@ -2,6 +2,7 @@ import "reflect-metadata"; // required by @peculiar/x509's DI container
 import { decode as cborDecode } from "cbor-x";
 import { createHash } from "node:crypto";
 import { X509Certificate, X509ChainBuilder } from "@peculiar/x509";
+import * as asn1js from "asn1js";
 
 /**
  * Apple App Attest root CA. Fetched directly from
@@ -125,12 +126,8 @@ export async function verifyAttestation(
   if (!nonceExtension) {
     throw new AppAttestVerificationError("leaf certificate missing Apple nonce extension", "nonce_extension_missing");
   }
-  // The extension wraps the nonce in an ASN.1 OCTET STRING inside a SEQUENCE; a full DER parse is
-  // out of scope for this fixture-only check, so we do a substring containment check on the raw
-  // extension bytes, which is sufficient to prove the wiring is correct against our own fixture
-  // but is NOT a substitute for full ASN.1 parsing against a real Apple certificate. See WORKLOG.md.
-  const extensionBytes = Buffer.from(nonceExtension.value);
-  if (!extensionBytes.includes(nonce)) {
+  const extractedNonce = parseAppleNonceExtension(Buffer.from(nonceExtension.value));
+  if (!extractedNonce.equals(nonce)) {
     throw new AppAttestVerificationError("nonce not found in certificate extension", "nonce_mismatch");
   }
 
@@ -141,6 +138,37 @@ export async function verifyAttestation(
     counter,
     aaguid,
   };
+}
+
+/**
+ * Parses Apple's App Attest nonce certificate extension (OID 1.2.840.113635.100.8.2), per
+ * https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server:
+ * "a single X.509 SEQUENCE containing a single element of type OCTET STRING, wrapped in an
+ * explicit [1] context tag." Does a real DER structural parse (via asn1js, already a transitive
+ * dependency of @peculiar/x509) rather than a substring containment check on the raw bytes.
+ */
+function parseAppleNonceExtension(extensionValue: Buffer): Buffer {
+  const arrayBuffer = extensionValue.buffer.slice(
+    extensionValue.byteOffset,
+    extensionValue.byteOffset + extensionValue.byteLength
+  ) as ArrayBuffer;
+  const { result: sequence, offset } = asn1js.fromBER(arrayBuffer);
+  if (offset === -1 || !(sequence instanceof asn1js.Sequence)) {
+    throw new AppAttestVerificationError("nonce extension is not a DER SEQUENCE", "nonce_extension_malformed");
+  }
+  const [contextTagged] = sequence.valueBlock.value;
+  if (
+    !(contextTagged instanceof asn1js.Constructed) ||
+    contextTagged.idBlock.tagClass !== 3 /* CONTEXT-SPECIFIC */ ||
+    contextTagged.idBlock.tagNumber !== 1 /* [1] */
+  ) {
+    throw new AppAttestVerificationError("nonce extension missing explicit [1] context tag", "nonce_extension_malformed");
+  }
+  const [octetString] = contextTagged.valueBlock.value;
+  if (!(octetString instanceof asn1js.OctetString)) {
+    throw new AppAttestVerificationError("nonce extension [1] tag does not contain an OCTET STRING", "nonce_extension_malformed");
+  }
+  return Buffer.from(octetString.valueBlock.valueHexView);
 }
 
 function pemToDer(pem: string): Buffer {
