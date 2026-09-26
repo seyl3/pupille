@@ -1,0 +1,28 @@
+# Pupille iPhone MVP test
+
+## Run the Mac backend
+
+Use the existing ignored `backend/.env.world.local` with the World RP key, RP ID, app ID, `PUPILLE_WORLD_ENVIRONMENT=staging`, and current staging verification token. Keep `backend/.secrets/issuer.pem`: its public half is pinned in the iPhone build, so replacing it makes existing posts appear unverified.
+
+```sh
+./tools/run-iphone-mvp.sh
+```
+
+The script starts the local PostgreSQL 17 instance, applies the schema, builds the backend, and serves port 8787. Keep its terminal open. The iPhone and Mac need the same Wi-Fi. In the app's **Development server** field, use `http://10.71.222.215:8787` for this Mac's current Wi-Fi address (update it if the address changes).
+
+## Test on the iPhone
+
+1. Open Pupille. The first screen is **Continue with World ID**. Choose a 3–20 character handle; the proof signal binds that handle to the iPhone's persistent Secure Enclave public key.
+2. Tap **Verify and create profile**. Approve the profile signature with Face ID. The backend checks that signature and a fresh Apple App Attest assertion **before** the one-time World proof is requested. Then tap **Open World Simulator**, select a fresh Human staging identity, and approve. Switch back to Pupille. The backend checks the full IDKit result with World and stores the profile. A simulator identity already used for this action may be rejected as a duplicate.
+3. Open **Capture**, take a photo, optionally add a caption, then tap **Publish verified capture**. The app sends exact camera bytes, a fresh App Attest assertion, and a Secure Enclave signature over the capture commitment. The backend checks them before saving the post.
+4. Open **Feed** and pull down to refresh. The app downloads the image bytes and checks the image hash, issuer signatures, author binding, capture commitment, author signature, and caption hash. A green badge means those checks passed. The label shows whether the author used a staging or production Human proof at signup.
+
+## What the badge means
+
+For this build, World verifies **Proof of Human at profile creation**. Current native IDKit Swift exposes the 4.0 uniqueness request but not the public session flow, so posts rely on the World-bound profile key plus a fresh App Attest assertion; there is **no per-post World proof**. The camera path has no Photo Library import, but App Attest cannot prove the physical scene is truthful. A staging Human test identity is not a production Orb account.
+
+Production uses the same app and RP with `PUPILLE_WORLD_ENVIRONMENT=production`, a production backend, the RP key in a server secret store, and an Orb verified World App user. The app chooses the IDKit environment reported by its backend and opens World App in production. Do not set fixture verification or a test App Attest root in production.
+
+## Build and install again
+
+Open `ios/Pupille/Pupille.xcodeproj`, select the connected iPhone 14 Pro (`gateway`), and press **⌘R**. The app name is `Pupille` in `Info.plist`, and the Home Screen icon is `Assets.xcassets/AppIcon.appiconset/pupille-logo.png`.

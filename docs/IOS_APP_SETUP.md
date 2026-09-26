@@ -2,7 +2,7 @@
 
 # Setting up `ios/Pupille` on a Mac
 
-This was the original implementation handoff from Linux. The installable SwiftUI device-check app now exists and has passed camera, Secure Enclave, App Attest and Mac certificate checks on an iPhone 14 Pro. Use [IPHONE_TESTING.md](IPHONE_TESTING.md) for current setup. The remaining app work is the Proof of Human IDKit flow, durable profiles, publishing and feed UI.
+This is the original implementation handoff from Linux. For the current app and test steps, use [IPHONE_MVP_TESTING.md](IPHONE_MVP_TESTING.md). The iPhone target now includes a native Proof of Human uniqueness request, durable profile key, capture, publishing, and feed verification. The older steps below are retained as design history.
 
 Follow this in order — each step unblocks the next, and step 1 is the highest-risk item in
 the whole project (see `docs/WORKLOG.md` HANDOFF), so don't leave it for last.
