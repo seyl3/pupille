@@ -1,6 +1,7 @@
 import SwiftUI
 import PhotosUI
 import UIKit
+import CryptoKit
 
 struct ContentView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -15,9 +16,9 @@ struct ContentView: View {
     @State private var exploringAsGuest = false
     @State private var selectedAvatar: PhotosPickerItem?
     @State private var selectedAuditPost: FeedPost?
+    @State private var selectedDetailPost: FeedPost?
     @State private var showPublishSuccess = false
     @State private var publishInFlight = false
-    @State private var showResetConfirmation = false
     @State private var onboardingVisible = false
     @State private var orbiting = false
     @FocusState private var captionFocused: Bool
@@ -37,23 +38,8 @@ struct ContentView: View {
         .sheet(isPresented: $model.worldRequestActive) { WorldProofView(model: model) }
         .task { if !model.handle.isEmpty { await model.loadProfile() } }
         .sheet(item: $selectedAuditPost) { post in verificationSheet(for: post) }
-        .confirmationDialog("Reset the Pupille demo?", isPresented: $showResetConfirmation,
-                            titleVisibility: .visible) {
-            Button("Delete all demo profiles and photos", role: .destructive) {
-                Task {
-                    if await model.resetDemo() {
-                        capturedPhoto = nil
-                        caption = ""
-                        selectedAvatar = nil
-                        draftHandle = ""
-                        readyToClaimHandle = false
-                        exploringAsGuest = false
-                        selectedTab = 0
-                    }
-                }
-            }
-        } message: {
-            Text("This clears every profile, photo, and reaction on your local staging server. Face ID is required. Your World and server configuration stays in place.")
+        .fullScreenCover(item: $selectedDetailPost) { post in
+            PostDetailView(model: model, post: post)
         }
         .overlay {
             if showPublishSuccess {
@@ -137,7 +123,7 @@ struct ContentView: View {
                     .frame(width: 106, height: 106)
                     .glassEffect(.regular, in: Circle())
             }
-            .frame(height: 196)
+            .frame(width: 196, height: 196)
             .accessibilityHidden(true)
 
             Text("Pupille")
@@ -149,11 +135,6 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .fixedSize(horizontal: false, vertical: true)
-            Text("CAPTURE · VERIFY · SHARE")
-                .font(.caption2.weight(.semibold))
-                .tracking(2.2)
-                .foregroundStyle(.tertiary)
-                .padding(.top, 2)
         }
         .frame(maxWidth: .infinity)
         .opacity(onboardingVisible ? 1 : 0)
@@ -179,10 +160,6 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Make it yours.")
                         .font(.title2.weight(.bold))
-                    Text("Your handle is the name shown beside your photos. Your real name stays private.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
 
                 VStack(alignment: .leading, spacing: 8) {
@@ -238,10 +215,6 @@ struct ContentView: View {
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Your place in the feed")
                         .font(.title2.weight(.bold))
-                    Text("World ID confirms one human per profile. Your photos carry proof that viewers can inspect.")
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Button {
                     UISelectionFeedbackGenerator().selectionChanged()
@@ -454,10 +427,13 @@ struct ContentView: View {
                             LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                                 ForEach(ownPosts) { post in
                                     if let bytes = model.imageBytes[post.id], let image = UIImage(data: bytes) {
-                                        Image(uiImage: image).resizable().scaledToFit()
-                                            .frame(maxWidth: .infinity)
-                                            .clipShape(RoundedRectangle(cornerRadius: 20))
-                                            .accessibilityLabel("Photo posted by you")
+                                        Button { selectedDetailPost = post } label: {
+                                            Image(uiImage: image).resizable().scaledToFit()
+                                                .frame(maxWidth: .infinity)
+                                                .clipShape(RoundedRectangle(cornerRadius: 20))
+                                        }
+                                        .buttonStyle(.plain)
+                                        .accessibilityLabel("Open your photo and its proof")
                                     }
                                 }
                             }
@@ -473,11 +449,6 @@ struct ContentView: View {
                                     .textInputAutocapitalization(.never).autocorrectionDisabled()
                                     .keyboardType(.URL).textFieldStyle(.roundedBorder)
                                 Button("Save server URL") { model.baseURL = backendURL }
-                                Button("Reset demo from scratch", role: .destructive) {
-                                    showResetConfirmation = true
-                                }
-                                .foregroundStyle(.red)
-                                .disabled(model.isBusy)
                             }.padding(.top, 12)
                         } label: {
                             Label("Development", systemImage: "gearshape")
@@ -699,9 +670,13 @@ struct ContentView: View {
             .accessibilityLabel("View @\(post.author.handle)'s profile")
             ZStack(alignment: .bottomTrailing) {
                 if let bytes = model.imageBytes[post.id], let image = UIImage(data: bytes) {
-                    Image(uiImage: image).resizable().scaledToFit()
-                        .frame(maxWidth: .infinity)
-                        .clipShape(RoundedRectangle(cornerRadius: 22))
+                    Button { selectedDetailPost = post } label: {
+                        Image(uiImage: image).resizable().scaledToFit()
+                            .frame(maxWidth: .infinity)
+                            .clipShape(RoundedRectangle(cornerRadius: 22))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Open photo by @\(post.author.handle)")
                 } else {
                     RoundedRectangle(cornerRadius: 22).fill(.secondary.opacity(0.1))
                         .frame(height: 180)
@@ -746,10 +721,23 @@ struct ContentView: View {
     }
 
     private func verificationSheet(for post: FeedPost) -> some View {
-        let checks = model.verificationChecks[post.id] ?? [
+        PostVerificationView(model: model, post: post)
+    }
+}
+
+private struct PostVerificationView: View {
+    @ObservedObject var model: AppModel
+    let post: FeedPost
+    @Environment(\.dismiss) private var dismiss
+
+    private var checks: [VerificationCheck] {
+        model.verificationChecks[post.id] ?? [
             VerificationCheck(title: "Photo could not be checked", passed: false)
         ]
-        return NavigationStack {
+    }
+
+    var body: some View {
+        NavigationStack {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
                     HStack(spacing: 14) {
@@ -784,7 +772,7 @@ struct ContentView: View {
             .navigationTitle("Verification")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { ToolbarItem(placement: .topBarTrailing) {
-                Button("Done") { selectedAuditPost = nil }
+                Button("Done") { dismiss() }
             } }
         }
         .presentationDetents([.medium, .large])
@@ -794,6 +782,7 @@ struct ContentView: View {
 private struct PublicProfileView: View {
     @ObservedObject var model: AppModel
     let handle: String
+    @State private var selectedPost: FeedPost?
 
     private var authorPosts: [FeedPost] {
         model.posts.filter { $0.author.handle == handle }
@@ -844,10 +833,13 @@ private struct PublicProfileView: View {
                     LazyVGrid(columns: [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)], spacing: 12) {
                         ForEach(authorPosts) { post in
                             if let bytes = model.imageBytes[post.id], let image = UIImage(data: bytes) {
-                                Image(uiImage: image).resizable().scaledToFit()
-                                    .frame(maxWidth: .infinity)
-                                    .clipShape(RoundedRectangle(cornerRadius: 20))
-                                    .accessibilityLabel("Capture by @\(handle)")
+                                Button { selectedPost = post } label: {
+                                    Image(uiImage: image).resizable().scaledToFit()
+                                        .frame(maxWidth: .infinity)
+                                        .clipShape(RoundedRectangle(cornerRadius: 20))
+                                }
+                                .buttonStyle(.plain)
+                                .accessibilityLabel("Open capture by @\(handle) and its proof")
                             }
                         }
                     }
@@ -859,6 +851,159 @@ private struct PublicProfileView: View {
         .navigationTitle("Profile")
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.loadPublicProfile(handle) }
+        .fullScreenCover(item: $selectedPost) { post in
+            PostDetailView(model: model, post: post)
+        }
+    }
+}
+
+private struct PostSharePayload: Identifiable {
+    let id = UUID()
+    let items: [Any]
+}
+
+private struct PostShareSheet: UIViewControllerRepresentable {
+    let items: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: items, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ controller: UIActivityViewController, context: Context) {}
+}
+
+private struct PostDetailView: View {
+    @ObservedObject var model: AppModel
+    let post: FeedPost
+    @Environment(\.dismiss) private var dismiss
+    @State private var showVerification = false
+    @State private var sharePayload: PostSharePayload?
+    @State private var showShareError = false
+    @State private var shareError = ""
+
+    private var verified: Bool { model.verifiedPostIDs.contains(post.id) }
+
+    var body: some View {
+        GeometryReader { geometry in
+            VStack(spacing: 18) {
+                HStack {
+                    Button { dismiss() } label: {
+                        Image(systemName: "xmark")
+                            .font(.headline)
+                            .frame(width: 44, height: 44)
+                            .glassEffect(.regular, in: Circle())
+                    }
+                    .accessibilityLabel("Close photo")
+                    Spacer()
+                    Text("@\(post.author.handle)")
+                        .font(.headline)
+                        .lineLimit(1)
+                    Spacer()
+                    Color.clear.frame(width: 44, height: 44)
+                }
+
+                Spacer(minLength: 0)
+                ZStack(alignment: .bottomTrailing) {
+                    if let bytes = model.imageBytes[post.id], let image = UIImage(data: bytes) {
+                        Image(uiImage: image)
+                            .resizable()
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity, maxHeight: geometry.size.height * 0.61)
+                            .clipShape(RoundedRectangle(cornerRadius: 24))
+                            .accessibilityLabel("Photo by @\(post.author.handle)")
+                    } else {
+                        ProgressView().frame(maxWidth: .infinity, minHeight: 280)
+                    }
+                    Button { showVerification = true } label: {
+                        Image(systemName: verified ? "checkmark.seal.fill" : "xmark.circle.fill")
+                            .font(.system(size: 26))
+                            .foregroundStyle(verified ? Color.green : Color.red)
+                            .frame(width: 54, height: 54)
+                            .glassEffect(.regular, in: Circle())
+                    }
+                    .accessibilityLabel("Inspect photo proof")
+                    .padding(12)
+                }
+                Spacer(minLength: 0)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    if let caption = post.caption, !caption.isEmpty {
+                        Text(caption)
+                            .font(.body)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    Button { showVerification = true } label: {
+                        Label(verified ? "Verified capture" : "Proof needs review",
+                              systemImage: verified ? "checkmark.seal.fill" : "xmark.circle.fill")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(verified ? Color.green : Color.red)
+                    }
+                    .buttonStyle(.plain)
+                    HStack(spacing: 12) {
+                        Button { prepareShare(includeMessage: true) } label: {
+                            Label("Share", systemImage: "square.and.arrow.up")
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                        }
+                        .buttonStyle(.glassProminent)
+                        Button { prepareShare(includeMessage: false) } label: {
+                            Label("Export", systemImage: "square.and.arrow.down")
+                                .frame(maxWidth: .infinity, minHeight: 48)
+                        }
+                        .buttonStyle(.glass)
+                    }
+                    Text("Export includes the original photo and its signed proof file.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .padding(20)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+        .background(Color.black.ignoresSafeArea())
+        .foregroundStyle(.white)
+        .preferredColorScheme(.dark)
+        .sheet(isPresented: $showVerification) {
+            PostVerificationView(model: model, post: post)
+        }
+        .sheet(item: $sharePayload) { payload in
+            PostShareSheet(items: payload.items)
+        }
+        .alert("Unable to share", isPresented: $showShareError) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(shareError)
+        }
+    }
+
+    private func prepareShare(includeMessage: Bool) {
+        guard let bytes = model.imageBytes[post.id] else {
+            shareError = "This photo is still loading. Try again in a moment."
+            showShareError = true
+            return
+        }
+        do {
+            let folder = FileManager.default.temporaryDirectory
+                .appendingPathComponent("pupille-export-\(UUID().uuidString)", isDirectory: true)
+            try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let imageURL = folder.appendingPathComponent("pupille-\(post.id).jpg")
+            let proofURL = folder.appendingPathComponent("pupille-\(post.id)-proof.json")
+            try bytes.write(to: imageURL, options: .atomic)
+            try model.proofExportData(for: post, image: bytes).write(to: proofURL, options: .atomic)
+            var items: [Any] = []
+            if includeMessage {
+                let digest = Data(SHA256.hash(data: bytes)).hex
+                items.append("Hey, verify this Pupille capture by @\(post.author.handle) "
+                    + "(profile 0x\(post.author.profileId)). "
+                    + "The original photo and signed proof are attached. "
+                    + "Photo SHA-256: \(digest). Post ID: \(post.id)")
+            }
+            items.append(imageURL)
+            items.append(proofURL)
+            sharePayload = PostSharePayload(items: items)
+        } catch {
+            shareError = error.localizedDescription
+            showShareError = true
+        }
     }
 }
 
@@ -914,7 +1059,7 @@ private struct WorldProofView: View {
                             }
                         } label: {
                             HStack {
-                                Text(model.worldEnvironment == "staging" ? "Open World Simulator" : "Open World App")
+                                Text("Connect with World")
                                 Spacer()
                                 Image(systemName: "arrow.up.right")
                             }
