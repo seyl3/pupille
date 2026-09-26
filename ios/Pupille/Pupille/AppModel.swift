@@ -190,6 +190,9 @@ final class AppModel: ObservableObject {
                (response as? HTTPURLResponse)?.statusCode == 200 {
                 avatarBytes[handle] = avatar
             }
+        } catch AppError.server(let message) where message == "HTTP 404" {
+            clearLocalIdentity()
+            status = "The demo server was reset. Create a new profile to continue."
         } catch { status = "Profile: \(error.localizedDescription)" }
     }
 
@@ -266,32 +269,36 @@ final class AppModel: ObservableObject {
                 "challengeId": challenge.challengeId, "signature": signature.hex,
             ])
             guard result.reset else { throw AppError.invalidResponse }
-            for key in ["profileHandle", "profileID", "profileKeyReference",
-                        "registeredAttestKeyID", "registeredAttestServerKeyID"] {
-                UserDefaults.standard.removeObject(forKey: key)
-            }
-            handle = ""
-            posts = []
-            imageBytes = [:]
-            avatarBytes = [:]
-            profile = nil
-            publicProfiles = [:]
-            verifiedPostIDs = []
-            verificationChecks = [:]
-            reactionCounts = [:]
-            myReactions = [:]
-            reactingPostIDs = []
-            postEnvironments = [:]
-            request = nil
-            signup = nil
-            connectorURL = nil
-            worldRequestActive = false
+            clearLocalIdentity()
             status = "Demo reset. Create a new World verified profile."
             return true
         } catch {
             status = "Reset failed: \(error.localizedDescription)"
             return false
         }
+    }
+
+    private func clearLocalIdentity() {
+        for key in ["profileHandle", "profileID", "profileKeyReference",
+                    "registeredAttestKeyID", "registeredAttestServerKeyID"] {
+            UserDefaults.standard.removeObject(forKey: key)
+        }
+        handle = ""
+        posts = []
+        imageBytes = [:]
+        avatarBytes = [:]
+        profile = nil
+        publicProfiles = [:]
+        verifiedPostIDs = []
+        verificationChecks = [:]
+        reactionCounts = [:]
+        myReactions = [:]
+        reactingPostIDs = []
+        postEnvironments = [:]
+        request = nil
+        signup = nil
+        connectorURL = nil
+        worldRequestActive = false
     }
 
     private func audit(post: FeedPost, image: Data) -> [VerificationCheck] {
