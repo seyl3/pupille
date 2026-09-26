@@ -1,0 +1,226 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 60;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		5A0000000000000000000001 /* SampleGramApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0000000000000000000001 /* SampleGramApp.swift */; };
+		5A0000000000000000000002 /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5B0000000000000000000002 /* ContentView.swift */; };
+		5A0000000000000000000003 /* PupilleKit in Frameworks */ = {isa = PBXBuildFile; productRef = 5F0000000000000000000002 /* PupilleKit */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		5B0000000000000000000001 /* SampleGramApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SampleGramApp.swift; sourceTree = "<group>"; };
+		5B0000000000000000000002 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		5B0000000000000000000003 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
+		5B0000000000000000000004 /* SampleGram.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SampleGram.app; sourceTree = BUILT_PRODUCTS_DIR; };
+/* End PBXFileReference section */
+
+/* Begin PBXFrameworksBuildPhase section */
+		5E0000000000000000000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5A0000000000000000000003 /* PupilleKit in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXGroup section */
+		5C0000000000000000000001 = {
+			isa = PBXGroup;
+			children = (
+				5C0000000000000000000002 /* SampleGram */,
+				5C0000000000000000000003 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		5C0000000000000000000002 /* SampleGram */ = {
+			isa = PBXGroup;
+			children = (
+				5B0000000000000000000001 /* SampleGramApp.swift */,
+				5B0000000000000000000002 /* ContentView.swift */,
+				5B0000000000000000000003 /* Info.plist */,
+			);
+			path = SampleGram;
+			sourceTree = "<group>";
+		};
+		5C0000000000000000000003 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				5B0000000000000000000004 /* SampleGram.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5D0000000000000000000001 /* SampleGram */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 590000000000000000000002 /* Build configuration list for PBXNativeTarget "SampleGram" */;
+			buildPhases = (
+				5E0000000000000000000001 /* Sources */,
+				5E0000000000000000000003 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = SampleGram;
+			packageProductDependencies = (
+				5F0000000000000000000002 /* PupilleKit */,
+			);
+			productName = SampleGram;
+			productReference = 5B0000000000000000000004 /* SampleGram.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		5D0000000000000000000002 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = 1;
+				LastUpgradeCheck = 2700;
+				TargetAttributes = {
+					5D0000000000000000000001 = {
+						CreatedOnToolsVersion = 27.0;
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 590000000000000000000001 /* Build configuration list for PBXProject "SampleGram" */;
+			compatibilityVersion = "Xcode 15.0";
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				en,
+				Base,
+			);
+			mainGroup = 5C0000000000000000000001;
+			packageReferences = (
+				5F0000000000000000000001 /* XCLocalSwiftPackageReference "../PupilleKit" */,
+			);
+			productRefGroup = 5C0000000000000000000003 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5D0000000000000000000001 /* SampleGram */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		5E0000000000000000000001 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				5A0000000000000000000001 /* SampleGramApp.swift in Sources */,
+				5A0000000000000000000002 /* ContentView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		590000000000000000000003 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+			};
+			name = Debug;
+		};
+		590000000000000000000004 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ENABLE_MODULES = YES;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				IPHONEOS_DEPLOYMENT_TARGET = 17.0;
+				SDKROOT = iphoneos;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+			};
+			name = Release;
+		};
+		590000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4397GAXGZ4;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SampleGram/Info.plist;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = app.pupille.sample;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Debug;
+		};
+		590000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = 4397GAXGZ4;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = SampleGram/Info.plist;
+				MARKETING_VERSION = 0.1;
+				PRODUCT_BUNDLE_IDENTIFIER = app.pupille.sample;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = 1;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		590000000000000000000001 /* Build configuration list for PBXProject "SampleGram" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				590000000000000000000003 /* Debug */,
+				590000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		590000000000000000000002 /* Build configuration list for PBXNativeTarget "SampleGram" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				590000000000000000000005 /* Debug */,
+				590000000000000000000006 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+/* End XCConfigurationList section */
+
+/* Begin XCLocalSwiftPackageReference section */
+		5F0000000000000000000001 /* XCLocalSwiftPackageReference "../PupilleKit" */ = {
+			isa = XCLocalSwiftPackageReference;
+			relativePath = ../PupilleKit;
+		};
+/* End XCLocalSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		5F0000000000000000000002 /* PupilleKit */ = {
+			isa = XCSwiftPackageProductDependency;
+			productName = PupilleKit;
+		};
+/* End XCSwiftPackageProductDependency section */
+	};
+	rootObject = 5D0000000000000000000002 /* Project object */;
+}

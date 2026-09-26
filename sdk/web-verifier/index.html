@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pupille Verifier</title>
+<style>
+  :root {
+    --bg: #f5f5f4; --surface: #ffffff; --text: #111111; --muted: #6b6b6b;
+    --line: #e4e4e2; --pass: #1f8a4c; --fail: #c2362b; --focus: #111111;
+    color-scheme: light;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #0c0c0c; --surface: #171717; --text: #f2f2f2; --muted: #9a9a9a;
+      --line: #2a2a2a; --pass: #3ccf7a; --fail: #ff6b5e; --focus: #f2f2f2;
+      color-scheme: dark;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 16px/1.5 -apple-system, BlinkMacSystemFont, "SF Pro Text", "Helvetica Neue", sans-serif;
+  }
+  main { max-width: 760px; margin: 0 auto; padding: 48px 16px 64px; }
+  h1 { font-size: 34px; letter-spacing: -0.02em; margin: 0 0 6px; }
+  .lede { color: var(--muted); margin: 0 0 28px; max-width: 58ch; }
+  .drop {
+    display: block; border: 1.5px dashed var(--line); border-radius: 20px; background: var(--surface);
+    padding: 40px 20px; text-align: center; cursor: pointer; transition: border-color .15s, transform .15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--text); }
+  .drop.over { transform: scale(1.01); }
+  .drop strong { display: block; font-size: 18px; margin-bottom: 4px; }
+  .drop span { color: var(--muted); font-size: 14px; }
+  .drop input { position: absolute; width: 1px; height: 1px; opacity: 0; }
+  .drop:focus-within { outline: 2px solid var(--focus); outline-offset: 3px; }
+  .samples { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin: 16px 0 8px; }
+  .samples > span { color: var(--muted); font-size: 14px; margin-right: 4px; }
+  button {
+    font: inherit; font-size: 14px; color: var(--text); background: var(--surface);
+    border: 1px solid var(--line); border-radius: 999px; padding: 6px 14px; cursor: pointer;
+  }
+  button:hover { border-color: var(--text); }
+  button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  details { margin: 8px 0 32px; color: var(--muted); font-size: 14px; }
+  summary { cursor: pointer; }
+  label.field { display: block; margin-top: 12px; }
+  label.field input {
+    display: block; width: 100%; margin-top: 4px; padding: 8px 10px; border-radius: 10px;
+    border: 1px solid var(--line); background: var(--surface); color: var(--text);
+    font: 13px ui-monospace, SFMono-Regular, Menlo, monospace;
+  }
+  #results { display: grid; gap: 20px; }
+  .card {
+    display: grid; grid-template-columns: 200px 1fr; gap: 20px; background: var(--surface);
+    border: 1px solid var(--line); border-radius: 20px; padding: 16px; overflow: hidden;
+  }
+  .card img { width: 100%; aspect-ratio: 1; object-fit: contain; border-radius: 12px; background: var(--bg); }
+  .verdict { display: flex; align-items: center; gap: 10px; font-size: 20px; font-weight: 700; margin: 2px 0 2px; }
+  .badge {
+    width: 28px; height: 28px; border-radius: 50%; display: grid; place-items: center;
+    color: #fff; font-size: 16px; flex: none;
+  }
+  .ok .badge { background: var(--pass); }
+  .bad .badge { background: var(--fail); }
+  .meta { color: var(--muted); font-size: 14px; margin-bottom: 12px; overflow-wrap: anywhere; }
+  .caption { font-style: italic; margin-bottom: 10px; }
+  ul.checks { list-style: none; margin: 0; padding: 0; display: grid; gap: 6px; font-size: 15px; }
+  ul.checks li { display: flex; gap: 8px; align-items: baseline; }
+  ul.checks .mark { font-weight: 700; width: 1em; flex: none; }
+  ul.checks .pass .mark { color: var(--pass); }
+  ul.checks .fail { font-weight: 600; }
+  ul.checks .fail .mark { color: var(--fail); }
+  .file { font: 12px ui-monospace, SFMono-Regular, Menlo, monospace; color: var(--muted); margin-top: 12px; overflow-wrap: anywhere; }
+  .note { color: var(--muted); font-size: 13px; margin-top: 40px; }
+  @media (max-width: 560px) {
+    main { padding-top: 28px; }
+    h1 { font-size: 28px; }
+    .card { grid-template-columns: 1fr; }
+    .card img { aspect-ratio: 4 / 3; }
+  }
+</style>
+</head>
+<body>
+<main>
+  <h1>Pupille Verifier</h1>
+  <p class="lede">Drop a photo shared from a Pupille-powered app. Everything is checked in your browser against the issuer's public key: the exact bytes, the device capture, the author's signature and their World Human credential. Nothing is uploaded.</p>
+
+  <label class="drop" id="drop">
+    <input type="file" id="file" accept="image/jpeg" multiple>
+    <strong>Drop JPEGs here</strong>
+    <span>or click to choose files</span>
+  </label>
+
+  <div class="samples">
+    <span>Try a sample:</span>
+    <button data-sample="genuine.jpg">Genuine</button>
+    <button data-sample="edited.jpg">One byte edited</button>
+    <button data-sample="swapped.jpg">Proof on another photo</button>
+    <button data-sample="samplegram.jpg">From SampleGram</button>
+    <button data-sample="unknown-app.jpg">Untrusted app</button>
+  </div>
+
+  <details>
+    <summary>Trust settings</summary>
+    <label class="field">Issuer public key (Ed25519, hex)
+      <input id="issuer" spellcheck="false">
+    </label>
+    <label class="field">Trusted app IDs (comma-separated, empty = any certified app)
+      <input id="apps" spellcheck="false" placeholder="TEAMID.bundle.id, …">
+    </label>
+  </details>
+
+  <section id="results" aria-live="polite"></section>
+
+  <p class="note">Samples are signed by a demo issuer key, not Pupille's, and are checked with that key and the demo's trusted apps. The badge proves the exact image passed Pupille's capture checks and that the certified author signed it. It can't prove the scene is true.</p>
+</main>
+
+<script type="module">
+  import { verifyFile, PUPILLE_ISSUER_PUBLIC_KEY } from "../verify/dist/index.js";
+
+  const issuerInput = document.getElementById("issuer");
+  const appsInput = document.getElementById("apps");
+  const results = document.getElementById("results");
+  const drop = document.getElementById("drop");
+  issuerInput.value = PUPILLE_ISSUER_PUBLIC_KEY;
+
+  const samples = fetch("samples/samples.json").then((r) => r.json()).catch(() => null);
+
+  function el(tag, attrs = {}, ...children) {
+    const node = document.createElement(tag);
+    Object.assign(node, attrs);
+    node.append(...children.filter((c) => c != null));
+    return node;
+  }
+
+  function trust() {
+    const apps = appsInput.value.split(",").map((s) => s.trim()).filter(Boolean);
+    return { issuerPublicKey: issuerInput.value.trim(), trustedAppIds: apps.length ? apps : undefined };
+  }
+
+  async function show(name, bytes, options) {
+    let result = null, error = null;
+    try { result = await verifyFile(bytes, options); } catch (e) { error = e.message; }
+
+    const ok = result?.verified === true;
+    const title = error ? "Not a readable JPEG" : !result ? "No Pupille proof in this file"
+      : ok ? "Verified" : "Not verified";
+    const meta = result
+      ? [`@${result.handle ?? "unknown"}`, result.environment && `${result.environment} World Human`, result.appId]
+          .filter(Boolean).join(" · ")
+      : error ?? "This file carries no proof, so there's nothing to check.";
+    const preview = URL.createObjectURL(new Blob([bytes], { type: "image/jpeg" }));
+
+    const checks = result ? el("ul", { className: "checks" }, ...result.checks.map((c) =>
+      el("li", { className: c.passed ? "pass" : "fail" },
+        el("span", { className: "mark", textContent: c.passed ? "✓" : "✗" }),
+        el("span", { textContent: c.title })))) : null;
+
+    const card = el("article", { className: `card ${ok ? "ok" : "bad"}` },
+      el("img", { src: preview, alt: `Photo ${name}` }),
+      el("div", {},
+        el("div", { className: "verdict" }, el("span", { className: "badge", textContent: ok ? "✓" : "✗" }), title),
+        el("div", { className: "meta", textContent: meta }),
+        result?.caption ? el("div", { className: "caption", textContent: `“${result.caption}”` }) : null,
+        checks,
+        el("div", { className: "file", textContent: name })));
+    results.prepend(card);
+  }
+
+  async function handleFiles(files) {
+    for (const file of files) await show(file.name, new Uint8Array(await file.arrayBuffer()), trust());
+  }
+
+  document.getElementById("file").addEventListener("change", (e) => handleFiles(e.target.files));
+  drop.addEventListener("dragover", (e) => { e.preventDefault(); drop.classList.add("over"); });
+  drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+  drop.addEventListener("drop", (e) => {
+    e.preventDefault();
+    drop.classList.remove("over");
+    handleFiles(e.dataTransfer.files);
+  });
+
+  for (const button of document.querySelectorAll("[data-sample]")) {
+    button.addEventListener("click", async () => {
+      const config = await samples;
+      if (!config) return;
+      const response = await fetch(`samples/${button.dataset.sample}`);
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      await show(`${button.textContent} (sample)`, bytes,
+        { issuerPublicKey: config.issuerPublicKey, trustedAppIds: config.trustedAppIds });
+    });
+  }
+</script>
+</body>
+</html>
