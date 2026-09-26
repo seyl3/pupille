@@ -1,18 +1,30 @@
-import { describe, it, expect, vi, afterEach } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { HttpWorldVerifyClient, WorldVerifyError } from "../src/world/verifyClient.js";
 import { hashSignal } from "../src/proto/captureHasher.js";
 
-/**
- * Unit tests for HttpWorldVerifyClient's response handling, via a mocked `fetch`. This does NOT
- * exercise a real network call to World's API (no sandbox credentials available — see
- * docs/WORKLOG.md HANDOFF), but it does prove the client's own logic around a response is correct:
- * exactly the kind of bug (accepting an HTTP 200 body with `success: false`) that would otherwise
- * only be caught by a real integration, which this session cannot run.
- */
+const signal = `0x${"ab".repeat(32)}`;
+const proof = {
+  protocol_version: "4.0",
+  environment: "production",
+  action: "pupille-profile-v1",
+  nonce: "test-nonce",
+  responses: [{
+    identifier: "proof_of_human",
+    issuer_schema_id: 1,
+    signal_hash: hashSignal(signal),
+    nullifier: "0x1234",
+    proof: ["0x1", "0x2", "0x3", "0x4", "0x5"],
+  }],
+};
+const accepted = {
+  success: true,
+  environment: "production",
+  action: "pupille-profile-v1",
+  nullifier: "0x1234",
+  results: [{ identifier: "proof_of_human", success: true, nullifier: "0x1234" }],
+};
 
-const SIGNAL = "0x" + "ab".repeat(32);
-
-function mockFetchOnce(status: number, body: unknown) {
+function mockWorld(status: number, body: unknown) {
   const fetchMock = vi.fn().mockResolvedValue({
     ok: status >= 200 && status < 300,
     status,
@@ -22,36 +34,48 @@ function mockFetchOnce(status: number, body: unknown) {
   return fetchMock;
 }
 
-afterEach(() => {
-  vi.unstubAllGlobals();
-});
+afterEach(() => vi.unstubAllGlobals());
 
-describe("HttpWorldVerifyClient", () => {
-  it("accepts a well-formed, successful response with a matching signal_hash", async () => {
-    mockFetchOnce(200, { success: true, signal_hash: hashSignal(SIGNAL), session_id: "session_abc" });
-    const client = new HttpWorldVerifyClient();
-    const result = await client.verify("rp-id", {}, SIGNAL);
-    expect(result.session_id).toBe("session_abc");
+describe("live World 4.0 verifier contract", () => {
+  it("accepts a successful Human proof and converts its nullifier for Postgres", async () => {
+    const fetchMock = mockWorld(200, accepted);
+    const result = await new HttpWorldVerifyClient().verify("rp_test", proof, signal);
+    expect(result.nullifier).toBe("4660");
+    expect(result.identifier).toBe("proof_of_human");
+    expect(fetchMock).toHaveBeenCalledWith(expect.stringContaining("/api/v4/verify/rp_test"),
+      expect.objectContaining({ body: JSON.stringify(proof) }));
   });
 
-  it("rejects an HTTP 200 response body with success: false, instead of silently accepting it", async () => {
-    // This is exactly the gap this test was added to close: an HTTP-level 200 with a
-    // logically-failed verification body must not be treated as a successful proof.
-    mockFetchOnce(200, { success: false, signal_hash: hashSignal(SIGNAL) });
-    const client = new HttpWorldVerifyClient();
-    await expect(client.verify("rp-id", {}, SIGNAL)).rejects.toThrow(WorldVerifyError);
-    await expect(client.verify("rp-id", {}, SIGNAL)).rejects.toThrow(/success: false/);
+  it("rejects a forged local signal before calling World", async () => {
+    const fetchMock = mockWorld(200, accepted);
+    await expect(new HttpWorldVerifyClient().verify("rp_test", proof, "0xdead"))
+      .rejects.toMatchObject({ code: "signal_hash_mismatch" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("rejects a response whose signal_hash does not match what the server expected", async () => {
-    mockFetchOnce(200, { success: true, signal_hash: "0x" + "00".repeat(32) });
-    const client = new HttpWorldVerifyClient();
-    await expect(client.verify("rp-id", {}, SIGNAL)).rejects.toThrow(/signal_hash mismatch/);
+  it("rejects Selfie Check even if the response says success", async () => {
+    const fetchMock = mockWorld(200, accepted);
+    const selfie = { ...proof, responses: [{ ...proof.responses[0], identifier: "selfie", issuer_schema_id: 11 }] };
+    await expect(new HttpWorldVerifyClient().verify("rp_test", selfie, signal))
+      .rejects.toMatchObject({ code: "wrong_credential" });
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 
-  it("rejects a non-2xx HTTP response", async () => {
-    mockFetchOnce(500, { error: "internal_error" });
-    const client = new HttpWorldVerifyClient();
-    await expect(client.verify("rp-id", {}, SIGNAL)).rejects.toThrow(/500/);
+  it("rejects an unsuccessful verifier result", async () => {
+    mockWorld(200, { ...accepted, success: false });
+    await expect(new HttpWorldVerifyClient().verify("rp_test", proof, signal))
+      .rejects.toThrow(WorldVerifyError);
+  });
+
+  it("rejects a different verified nullifier", async () => {
+    mockWorld(200, { ...accepted, nullifier: "0x5678" });
+    await expect(new HttpWorldVerifyClient().verify("rp_test", proof, signal))
+      .rejects.toMatchObject({ code: "nullifier_mismatch" });
+  });
+
+  it("rejects a non-2xx verifier response", async () => {
+    mockWorld(403, { code: "environment_not_allowed" });
+    await expect(new HttpWorldVerifyClient().verify("rp_test", proof, signal))
+      .rejects.toMatchObject({ code: "environment_not_allowed" });
   });
 });

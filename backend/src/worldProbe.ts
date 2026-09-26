@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { IDKit, proofOfHuman } from "@worldcoin/idkit-core";
 import { signRequest } from "@worldcoin/idkit-core/signing";
 import { hashSignal } from "./proto/captureHasher.js";
+import { HttpWorldVerifyClient } from "./world/verifyClient.js";
 
 // IDKit 4.3.0 loads its bundled WASM through fetch(file:). Node's fetch does not
 // support file URLs, so serve only that local bundled file through a Response.
@@ -73,40 +74,8 @@ function checkIdkitResult(value: unknown, expectedNonce: string, signal: string)
 }
 
 async function verifyWithWorld(result: Record<string, unknown>): Promise<void> {
-  const response = await fetch(`https://developer.world.org/api/v4/verify/${rpId}`, {
-    method: "POST",
-    headers: {
-      "content-type": "application/json",
-      "x-staging-verification-token": stagingVerificationToken,
-    },
-    body: JSON.stringify(result),
-  });
-  const body = asRecord(await response.json());
-  if (!response.ok || body.success !== true) {
-    const code = typeof body.code === "string" ? body.code : `HTTP ${response.status}`;
-    const detail = typeof body.detail === "string" ? `: ${body.detail}` : "";
-    const failedResults = Array.isArray(body.results)
-      ? body.results.flatMap((item) => {
-          const result = asRecord(item);
-          return typeof result.code === "string" ? [result.code] : [];
-        })
-      : [];
-    const resultCodes = failedResults.length ? ` (proof results: ${failedResults.join(", ")})` : "";
-    throw new Error(`World verification failed (HTTP ${response.status}): ${code}${detail}${resultCodes}`);
-  }
-  if (body.environment !== "staging" || body.action !== action) {
-    throw new Error("World verified a different environment or action");
-  }
-  if (!Array.isArray(body.results) || !body.results.some((item) => {
-    const verified = asRecord(item);
-    return verified.identifier === "proof_of_human" && verified.success === true;
-  })) {
-    throw new Error("World did not verify the Proof of Human credential");
-  }
-  const localHuman = asRecord((result.responses as unknown[])[0]);
-  if (typeof body.nullifier === "string" && body.nullifier.toLowerCase() !== String(localHuman.nullifier).toLowerCase()) {
-    throw new Error("World verification nullifier differs from the proof");
-  }
+  const verified = await new HttpWorldVerifyClient().verify(rpId!, result, signal);
+  if (!verified.nullifier) throw new Error("World verified a proof without a uniqueness nullifier");
 }
 
 const rpSignature = signRequest({ signingKeyHex: signingKey, action });
