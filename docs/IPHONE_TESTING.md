@@ -56,6 +56,8 @@ The standalone probe needs no Postgres and does not create a Pupille profile. Fi
 
 The action description in the Developer Portal can be **Verify one human per Pupille profile**. This explains why Pupille requests the proof without implying that the staging simulator is a real Orb scan.
 
+If the simulator shows **Presented** but the probe reports `environment_not_allowed`, check the app environment in the Developer Portal. A simulator proof uses `staging`; a production-only app/RP cannot verify it. Use the staging app's public `app_id` and `rp_id` and its own backend-only RP key in `.env.world.local`, then restart the probe to make a fresh request. Do not switch the proof to `production` to make a simulator test pass.
+
 Apple references: [app target identity](https://developer.apple.com/documentation/xcode/preparing-your-app-for-distribution), [icon assets](https://developer.apple.com/documentation/xcode/configuring-your-app-icon), [launch screen](https://developer.apple.com/documentation/xcode/specifying-your-apps-launch-screen).
 
 Apple's current references: [Device Hub and pairing](https://developer.apple.com/documentation/xcode/managing-your-simulated-and-physical-devices-in-device-hub), [run on a device](https://developer.apple.com/documentation/xcode/building-and-running-an-app), [Developer Mode](https://developer.apple.com/documentation/xcode/enabling-developer-mode-on-a-device), [App Attest environment](https://developer.apple.com/documentation/bundleresources/entitlements/com.apple.developer.devicecheck.appattest-environment).

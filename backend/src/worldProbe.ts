@@ -1,8 +1,22 @@
 import { createServer } from "node:http";
 import { randomBytes } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { IDKit, proofOfHuman } from "@worldcoin/idkit-core";
 import { signRequest } from "@worldcoin/idkit-core/signing";
 import { hashSignal } from "./proto/captureHasher.js";
+
+// IDKit 4.3.0 loads its bundled WASM through fetch(file:). Node's fetch does not
+// support file URLs, so serve only that local bundled file through a Response.
+const networkFetch = globalThis.fetch;
+globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
+  const url = input instanceof URL ? input : typeof input === "string" ? new URL(input) : input.url ? new URL(input.url) : null;
+  if (url?.protocol === "file:" && url.pathname.endsWith("/idkit_wasm_bg.wasm")) {
+    const bytes = await readFile(fileURLToPath(url));
+    return new Response(bytes, { headers: { "content-type": "application/wasm" } });
+  }
+  return networkFetch(input, init);
+}) as typeof fetch;
 
 // A standalone staging check before the full Pupille profile flow exists. It never
 // stores a profile or claims production Orb verification. The connector URL is
