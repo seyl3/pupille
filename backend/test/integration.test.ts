@@ -9,6 +9,7 @@ import {
   profileCommitment,
   profileSignal,
   profilePoPMessage,
+  profileAssertClientDataHash,
   captureCommitment,
   worldSignal,
   postSignatureMessage,
@@ -90,11 +91,23 @@ async function createProfile(handle: string) {
 
   const sessionResult = buildWorldProofFixture({ signal, kind: "session" });
   const profilePoP = key.sign(profilePoPMessage(commitment));
+  const { assertionCbor: profileAssertion } = await buildAssertionFixture({
+    appId: "test.pupille",
+    clientDataHash: profileAssertClientDataHash(commitment),
+    counter: 1,
+    credentialPrivateKey,
+  });
 
   const completeRes = await app.request("/v1/profiles/complete", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ reservationId, nullifier, result: sessionResult, profilePoP: hex(profilePoP) }),
+    body: JSON.stringify({
+      reservationId,
+      nullifier,
+      result: sessionResult,
+      profilePoP: hex(profilePoP),
+      assertionBase64: profileAssertion.toString("base64"),
+    }),
   });
   expect(completeRes.status).toBe(200);
   const completeBody = await completeRes.json();
@@ -107,6 +120,59 @@ describe("full profile-creation → capture → publish → feed chain (real Pos
     const { handle, completeBody } = await createProfile("alice");
     expect((completeBody as any).handle).toBe(handle);
     expect((completeBody as any).profileCert.certB64).toBeTruthy();
+  });
+
+  it("rejects /profiles/complete when the App Attest profile assertion is signed by the wrong key", async () => {
+    const { attestKeyId, credentialPrivateKey } = await registerAttestKey("test.pupille");
+    const wrongAttestation = await buildAppAttestFixture({ appId: "test.pupille", clientDataHash: Buffer.alloc(32, 0x55) });
+    const key = new SoftwareProfileKeyForTests();
+    const profileId = Buffer.alloc(16, 9);
+    const handle = "gina";
+
+    const startRes = await app.request("/v1/profiles/start", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profileId: hex(profileId), publicKey: hex(key.publicKeyX963), handle, attestKeyId }),
+    });
+    const { reservationId } = (await startRes.json()) as { reservationId: string };
+    const commitment = profileCommitment(profileId, key.publicKeyX963, handle);
+    const signal = profileSignal(commitment);
+
+    const uniqueRes = await app.request("/v1/profiles/unique", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reservationId, result: buildWorldProofFixture({ signal, kind: "uniqueness" }) }),
+    });
+    const { nullifier } = (await uniqueRes.json()) as { nullifier: string };
+
+    const sessionResult = buildWorldProofFixture({ signal, kind: "session" });
+    const profilePoP = key.sign(profilePoPMessage(commitment));
+    // Signed by a DIFFERENT credential's key than the one registered as attestKeyId — must be rejected.
+    const { assertionCbor: wrongAssertion } = await buildAssertionFixture({
+      appId: "test.pupille",
+      clientDataHash: profileAssertClientDataHash(commitment),
+      counter: 1,
+      credentialPrivateKey: wrongAttestation.credentialPrivateKey,
+    });
+
+    const completeRes = await app.request("/v1/profiles/complete", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        reservationId,
+        nullifier,
+        result: sessionResult,
+        profilePoP: hex(profilePoP),
+        assertionBase64: wrongAssertion.toString("base64"),
+      }),
+    });
+    expect(completeRes.status).toBe(400);
+    const body = await completeRes.json();
+    expect((body as any).error).toBe("assertion_signature_invalid");
+
+    // And the profile must NOT have been created despite the World proof and PoP being valid.
+    const profileRow = await pool.query("select 1 from profiles where id = $1", [profileId]);
+    expect(profileRow.rowCount).toBe(0);
   });
 
   it("refuses a second profile for the same World ID nullifier", async () => {
@@ -170,7 +236,7 @@ describe("full profile-creation → capture → publish → feed chain (real Pos
     const { assertionCbor: assertion } = await buildAssertionFixture({
       appId: "test.pupille",
       clientDataHash: clientDataHash(imgHash, dHash, challenge),
-      counter: 1,
+      counter: 2, // profile completion already consumed counter 1
       credentialPrivateKey,
     });
     const assertHash = assertionHash(assertion);
@@ -235,7 +301,7 @@ describe("full profile-creation → capture → publish → feed chain (real Pos
     const { assertionCbor: assertion } = await buildAssertionFixture({
       appId: "test.pupille",
       clientDataHash: clientDataHash(imgHash, dHash, challenge),
-      counter: 1,
+      counter: 2, // profile completion already consumed counter 1
       credentialPrivateKey,
     });
     const assertHash = assertionHash(assertion);

@@ -18,6 +18,7 @@ import {
   profileCommitment,
   profileSignal,
   profilePoPMessage,
+  profileAssertClientDataHash,
   captureCommitment,
   worldSignal,
   postSignatureMessage,
@@ -143,6 +144,14 @@ async function main() {
 
   const sessionResult = fakeWorldResult(signal, "session");
   const profilePoP = profileKey.sign(profilePoPMessage(commitment));
+  // App Attest assertion over H("pupille:profile-assert:v1" || profileCommitment), per §07 —
+  // same attested App Attest key as registration, counter 1 (registration stored counter 0).
+  const { assertionCbor: profileAssertion } = await buildFakeAssertion({
+    appId: APP_ID,
+    clientDataHash: profileAssertClientDataHash(commitment),
+    counter: 1,
+    credentialPrivateKey: fakeAttestation.credentialPrivateKey,
+  });
 
   const completeRes = await callJson("/v1/profiles/complete", {
     method: "POST",
@@ -151,6 +160,7 @@ async function main() {
       nullifier: uniqueRes.body.nullifier,
       result: sessionResult,
       profilePoP: hex(profilePoP),
+      assertionBase64: profileAssertion.toString("base64"),
     }),
   });
   if (completeRes.status !== 200) throw new StepError("profiles/complete", JSON.stringify(completeRes.body));
@@ -175,7 +185,7 @@ async function main() {
   const { assertionCbor: assertion } = await buildFakeAssertion({
     appId: APP_ID,
     clientDataHash: assertClientDataHash,
-    counter: 1, // attestation registered counter 0; the server requires strictly greater
+    counter: 2, // registration stored 0, the profile-completion assertion already consumed 1
     credentialPrivateKey: fakeAttestation.credentialPrivateKey,
   });
   const assertHash = assertionHash(assertion);

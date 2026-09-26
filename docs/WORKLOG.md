@@ -10,7 +10,7 @@ cannot provide, and is listed under HANDOFF below rather than attempted.
 **Proof commands, all exit 0 on this machine:**
 
 ```
-cd backend && npm test                      # 31/31 tests, real Postgres
+cd backend && npm test                      # 32/32 tests, real Postgres
 cd ios/PupilleCore && swift test             # 9/9 tests
 cd tools/fake-phone && DATABASE_URL=... ./run.sh   # full E2E chain over real HTTP
 ```
@@ -147,6 +147,27 @@ What's a stand-in, always clearly labeled in the source as such:
 
 ## Resolved after initial handoff
 
+- **`/v1/profiles/complete` never checked the App Attest assertion §07
+  requires.** §07's own "Backend checks, in order" line ends with "App Attest
+  assertion over `H('pupille:profile-assert:v1' || profileCommitment)`" —
+  distinct from the per-capture assertion (`"pupille:assert:v1"`, checked on
+  `/captures/:id/device`). The route accepted `profilePoP` (the profile key's
+  own signature) and the World session proof, but never verified this
+  assertion at all — a real, previously-undetected gap against the
+  architecture doc's own spec, found by re-reading §07 line by line after
+  finishing the capture-side assertion work, not by a test failing. Fixed:
+  added `profileAssertClientDataHash` (`backend/src/proto/captureHasher.ts`)
+  and wired `verifyAssertion` into `/profiles/complete`, using the App Attest
+  key stored under the reservation's `app_attest_key_id`, in the order §07
+  specifies (after `profilePoP`, before storing `session_id`/`sybil_score`).
+  `tools/fake-phone` and the backend's `createProfile` test helper now build
+  and submit a real profile-completion assertion (counter 1, before the
+  capture-flow assertion's counter 2, since both draw from the same attested
+  key's strictly-increasing counter). A new test proves a wrong-key
+  assertion is rejected with `assertion_signature_invalid` AND that no
+  profile row is created despite the World proof and `profilePoP` both being
+  otherwise valid — the assertion check is not decorative. `npm test`: 32/32;
+  `tools/fake-phone/run.sh`: still exit 0.
 - **`HttpWorldVerifyClient` silently accepted an HTTP 200 response body with
   `success: false`.** It checked `signal_hash` but never checked `success`
   before returning the result as if verification had passed — unlike

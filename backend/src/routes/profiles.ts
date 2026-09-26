@@ -6,6 +6,7 @@ import {
   profileCommitment,
   profileSignal,
   profilePoPMessage,
+  profileAssertClientDataHash,
   hashSignal,
   hex,
   hexDecode,
@@ -14,6 +15,7 @@ import { verifyProfileSignature } from "../proto/profileKey.js";
 import { config } from "../config.js";
 import { createWorldVerifyClient, WorldVerifyError, type WorldVerifyResult } from "../world/verifyClient.js";
 import { signCertificate } from "../issuer.js";
+import { verifyAssertion, AppAttestVerificationError } from "../appattest/verify.js";
 
 const UNIQUENESS_ACTION = "pupille-profile-v1";
 const RESERVATION_TTL_MS = 10 * 60_000;
@@ -132,6 +134,7 @@ export function profileRoutes(pool: pg.Pool) {
       nullifier: string;
       result: Record<string, unknown>;
       profilePoP: string;
+      assertionBase64: string;
     }>();
 
     const reservation = await pool.query(
@@ -163,6 +166,32 @@ export function profileRoutes(pool: pg.Pool) {
       return c.json({ error: "profile_pop_invalid" }, 400);
     }
 
+    // App Attest assertion over H("pupille:profile-assert:v1" || profileCommitment), per §07's
+    // backend-checks line — proves the same attested app instance that reserved this handle is
+    // the one completing profile creation, using the App Attest key bound to this reservation.
+    const attestKeyRow = await pool.query(
+      "select public_key, counter from app_attest_keys where key_id = $1",
+      [row.app_attest_key_id]
+    );
+    if (attestKeyRow.rowCount === 0) {
+      return c.json({ error: "app_attest_key_not_found" }, 400);
+    }
+    const storedPublicKey: Buffer = attestKeyRow.rows[0].public_key;
+    const storedCounter: number = attestKeyRow.rows[0].counter;
+    let profileAssertionResult;
+    try {
+      profileAssertionResult = verifyAssertion(
+        Buffer.from(body.assertionBase64, "base64"),
+        profileAssertClientDataHash(commitment),
+        config.appId,
+        storedPublicKey,
+        storedCounter
+      );
+    } catch (err) {
+      if (err instanceof AppAttestVerificationError) return c.json({ error: err.code }, 400);
+      throw err;
+    }
+
     const client = await pool.connect();
     try {
       await client.query("BEGIN");
@@ -171,6 +200,10 @@ export function profileRoutes(pool: pg.Pool) {
          values ($1, $2, $3, $4, $5, $6)`,
         [profileId, body.nullifier, verifyResult.session_id, verifyResult.sybil_score ?? null, row.handle, "selfie"]
       );
+      await client.query("update app_attest_keys set counter = $1 where key_id = $2", [
+        profileAssertionResult.counter,
+        row.app_attest_key_id,
+      ]);
 
       const certJson = {
         v: 1,

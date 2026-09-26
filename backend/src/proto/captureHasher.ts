@@ -36,6 +36,15 @@ export function profilePoPMessage(commitment: Buffer): Buffer {
   return Buffer.concat([tag("pupille:profile-sig:v1"), commitment]);
 }
 
+/**
+ * clientDataHash for the App Attest assertion made at profile creation/rotation, per §07's
+ * backend-checks line: "App Attest assertion over H('pupille:profile-assert:v1' || profileCommitment)".
+ * Distinct from the per-capture clientDataHash (`"pupille:assert:v1"`), which hashes different fields.
+ */
+export function profileAssertClientDataHash(commitment: Buffer): Buffer {
+  return sha256(Buffer.concat([tag("pupille:profile-assert:v1"), commitment]));
+}
+
 // --- Per capture ---
 
 export function imageHash(imageBytes: Buffer): Buffer {
