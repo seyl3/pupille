@@ -76,7 +76,7 @@ reachable from this machine — do not mock the database.
       World client still runs the real signal_hash comparison. The real HTTP World
       client is implemented but never exercised against World's live API — logged in
       docs/WORKLOG.md Untested.
-- [x] `npm test` in `backend/` exits 0 covering the above (27/27 tests).
+- [x] `npm test` in `backend/` exits 0 covering the above (31/31 tests).
 
 ## 5C — iOS app (`ios/Pupille`)
 

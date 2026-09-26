@@ -10,7 +10,7 @@ cannot provide, and is listed under HANDOFF below rather than attempted.
 **Proof commands, all exit 0 on this machine:**
 
 ```
-cd backend && npm test                      # 27/27 tests, real Postgres
+cd backend && npm test                      # 31/31 tests, real Postgres
 cd ios/PupilleCore && swift test             # 9/9 tests
 cd tools/fake-phone && DATABASE_URL=... ./run.sh   # full E2E chain over real HTTP
 ```
@@ -147,6 +147,17 @@ What's a stand-in, always clearly labeled in the source as such:
 
 ## Resolved after initial handoff
 
+- **`HttpWorldVerifyClient` silently accepted an HTTP 200 response body with
+  `success: false`.** It checked `signal_hash` but never checked `success`
+  before returning the result as if verification had passed — unlike
+  `FixtureWorldVerifyClient`, which already did. A real, reachable bug (World
+  can return HTTP 200 with a logically-failed body), found by comparing the
+  two client implementations rather than by live testing, since neither has
+  been exercised against a real network call — see HANDOFF above. Fixed, and
+  covered by a new `backend/test/worldVerifyClient.test.ts` (4 tests, via a
+  mocked `fetch`, not a live call) that proves: a well-formed success is
+  accepted, `success: false` is rejected, a `signal_hash` mismatch is
+  rejected, and a non-2xx HTTP status is rejected. `npm test`: 31/31.
 - **App Attest assertion verification is now wired into
   `/v1/captures/:id/device`.** Previously this endpoint verified
   `postSignature` and the commitment chain (the check that actually binds

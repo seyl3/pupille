@@ -59,6 +59,9 @@ export class HttpWorldVerifyClient implements WorldVerifyClient {
     }
     const result = (await response.json()) as WorldVerifyResult;
     assertSignalHashMatches(result, expectedSignal);
+    if (!result.success) {
+      throw new WorldVerifyError("World verify API returned success: false", "verify_failed");
+    }
     return result;
   }
 }
