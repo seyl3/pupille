@@ -25,12 +25,16 @@ const appId = process.env.PUPILLE_WORLD_APP_ID;
 const rpId = process.env.PUPILLE_RP_ID;
 const action = process.env.PUPILLE_WORLD_ACTION ?? "pupille-profile-v1";
 const signingKey = process.env.PUPILLE_RP_SIGNING_KEY_HEX;
+const stagingVerificationToken = process.env.PUPILLE_WORLD_STAGING_VERIFICATION_TOKEN ?? "";
 
 if (!appId?.startsWith("app_") || !rpId?.startsWith("rp_") || !signingKey) {
   throw new Error("Set PUPILLE_WORLD_APP_ID, PUPILLE_RP_ID, and PUPILLE_RP_SIGNING_KEY_HEX in .env.world.local");
 }
 if (!/^(0x)?[0-9a-fA-F]{64}$/.test(signingKey)) {
   throw new Error("PUPILLE_RP_SIGNING_KEY_HEX must be a 32-byte hex key");
+}
+if (!stagingVerificationToken) {
+  throw new Error("Set PUPILLE_WORLD_STAGING_VERIFICATION_TOKEN from the Portal staging verification window");
 }
 
 type ProbeState = "waiting" | "verifying" | "passed" | "failed";
@@ -71,7 +75,10 @@ function checkIdkitResult(value: unknown, expectedNonce: string, signal: string)
 async function verifyWithWorld(result: Record<string, unknown>): Promise<void> {
   const response = await fetch(`https://developer.world.org/api/v4/verify/${rpId}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers: {
+      "content-type": "application/json",
+      "x-staging-verification-token": stagingVerificationToken,
+    },
     body: JSON.stringify(result),
   });
   const body = asRecord(await response.json());
