@@ -40,6 +40,25 @@ struct VerificationCheck: Identifiable {
     var id: String { title }
 }
 
+struct ProofDetail: Identifiable {
+    let title: String
+    let value: String
+    var id: String { title }
+}
+
+private final class AttestationCompletionGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var completed = false
+
+    func finish(_ body: () -> Void) {
+        lock.lock()
+        let shouldFinish = !completed
+        completed = true
+        lock.unlock()
+        if shouldFinish { body() }
+    }
+}
+
 private struct ProfileCertificate: Decodable {
     let profileId: String; let handle: String; let keyVersion: Int
     let publicKey: String; let credential: String; let environment: String?
@@ -279,8 +298,7 @@ final class AppModel: ObservableObject {
     }
 
     private func clearLocalIdentity() {
-        for key in ["profileHandle", "profileID", "profileKeyReference",
-                    "registeredAttestKeyID", "registeredAttestServerKeyID"] {
+        for key in ["profileHandle", "profileID", "profileKeyReference"] {
             UserDefaults.standard.removeObject(forKey: key)
         }
         handle = ""
@@ -391,6 +409,21 @@ final class AppModel: ObservableObject {
         return try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
     }
 
+    func proofDetails(for post: FeedPost) -> [ProofDetail] {
+        var details: [ProofDetail] = []
+        if let image = imageBytes[post.id] {
+            details.append(ProofDetail(title: "Photo SHA-256",
+                                       value: Data(SHA256.hash(data: image)).hex))
+        }
+        if let bytes = Data(base64Encoded: post.captureCert.certB64),
+           let capture = try? JSONDecoder().decode(CaptureCertificate.self, from: bytes) {
+            details.append(ProofDetail(title: "Signed capture commitment",
+                                       value: capture.captureCommitment))
+        }
+        details.append(ProofDetail(title: "Profile ID", value: "0x" + post.author.profileId))
+        return details
+    }
+
     @discardableResult
     func publish(imageData: Data, caption: String) async -> Bool {
         isBusy = true
@@ -441,6 +474,7 @@ final class AppModel: ObservableObject {
     }
 
     func beginSignup(handle chosenHandle: String) async {
+        guard !isBusy else { return }
         isBusy = true
         status = "Securing this iPhone…"
         defer { isBusy = false }
@@ -541,7 +575,9 @@ final class AppModel: ObservableObject {
     }
 
     private func registeredAttestKey() async throws -> (appleID: String, serverID: String) {
+        guard DCAppAttestService.shared.isSupported else { throw AppError.attestUnavailable }
         if let appleID = UserDefaults.standard.string(forKey: "registeredAttestKeyID") {
+            status = "Checking this iPhone with the demo server…"
             let serverID = UserDefaults.standard.string(forKey: "registeredAttestServerKeyID")
                 ?? appleID.replacingOccurrences(of: "+", with: "-")
                     .replacingOccurrences(of: "/", with: "_")
@@ -551,22 +587,51 @@ final class AppModel: ObservableObject {
                 UserDefaults.standard.set(serverID, forKey: "registeredAttestServerKeyID")
                 return (appleID, serverID)
             }
-            UserDefaults.standard.removeObject(forKey: "registeredAttestKeyID")
             UserDefaults.standard.removeObject(forKey: "registeredAttestServerKeyID")
+            do {
+                return try await attestAndRegister(appleID)
+            } catch {
+                let appleError = error as NSError
+                guard appleError.domain == DCError.errorDomain,
+                      appleError.code == DCError.invalidKey.rawValue else { throw error }
+                UserDefaults.standard.removeObject(forKey: "registeredAttestKeyID")
+            }
         }
-        guard DCAppAttestService.shared.isSupported else { throw AppError.attestUnavailable }
+        status = "Creating an iPhone security key…"
+        let keyID = try await DCAppAttestService.shared.generateKey()
+        UserDefaults.standard.set(keyID, forKey: "registeredAttestKeyID")
+        return try await attestAndRegister(keyID)
+    }
+
+    private func attestAndRegister(_ keyID: String) async throws -> (appleID: String, serverID: String) {
         let challenge: AttestChallenge = try await post("/v1/attest/challenge", [:])
         guard let bytes = Data(hexString: challenge.challenge) else { throw AppError.invalidResponse }
-        let keyID = try await DCAppAttestService.shared.generateKey()
         let hash = Data(SHA256.hash(data: bytes))
-        let attestation = try await DCAppAttestService.shared.attestKey(keyID, clientDataHash: hash)
+        status = "Waiting for Apple to certify this iPhone…"
+        let attestation = try await attestKeyWithTimeout(keyID, hash: hash)
+        status = "Verifying Apple’s certificate on the demo server…"
         let registered: AttestRegistered = try await post("/v1/attest/register", [
             "challengeId": challenge.challengeId, "keyId": keyID,
             "attestationObject": attestation.base64EncodedString()
         ])
-        UserDefaults.standard.set(keyID, forKey: "registeredAttestKeyID")
         UserDefaults.standard.set(registered.keyId, forKey: "registeredAttestServerKeyID")
         return (keyID, registered.keyId)
+    }
+
+    private func attestKeyWithTimeout(_ keyID: String, hash: Data) async throws -> Data {
+        try await withCheckedThrowingContinuation { continuation in
+            let gate = AttestationCompletionGate()
+            DCAppAttestService.shared.attestKey(keyID, clientDataHash: hash) { data, error in
+                gate.finish {
+                    if let error { continuation.resume(throwing: error) }
+                    else if let data { continuation.resume(returning: data) }
+                    else { continuation.resume(throwing: AppError.invalidResponse) }
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 35) {
+                gate.finish { continuation.resume(throwing: AppError.attestTimeout) }
+            }
+        }
     }
 
     private func url(_ path: String) throws -> URL {
@@ -612,7 +677,7 @@ final class AppModel: ObservableObject {
 }
 
 private enum AppError: LocalizedError {
-    case invalidURL, invalidResponse, randomFailure, keyFailure, attestUnavailable, server(String)
+    case invalidURL, invalidResponse, randomFailure, keyFailure, attestUnavailable, attestTimeout, server(String)
     var errorDescription: String? {
         switch self {
         case .invalidURL: "Enter a valid backend URL"
@@ -620,6 +685,7 @@ private enum AppError: LocalizedError {
         case .randomFailure: "Could not create profile ID"
         case .keyFailure: "Could not create Secure Enclave key"
         case .attestUnavailable: "App Attest unavailable on this iPhone"
+        case .attestTimeout: "Apple’s device check is taking too long. Check your connection and try again."
         case .server(let message): message
         }
     }
