@@ -1,0 +1,10 @@
+{
+  "name": "pupille-sdk",
+  "private": true,
+  "workspaces": ["verify"],
+  "scripts": {
+    "build": "npm run build -w @pupille/verify",
+    "test": "npm test -w @pupille/verify",
+    "verifier": "npm run build && node verify/dist/serve.js"
+  }
+}

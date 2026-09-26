@@ -1,0 +1,20 @@
+{
+  "name": "@pupille/verify",
+  "version": "0.1.0",
+  "description": "Verify Pupille photo proofs: exact bytes, device capture, author signature and World Human credential. Runs in Node and browsers.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": { ".": "./dist/index.js" },
+  "bin": { "pupille-proof": "dist/cli.js" },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "node --test test/*.test.ts"
+  },
+  "engines": { "node": ">=22.6" },
+  "devDependencies": {
+    "@types/node": "^22.7.0",
+    "typescript": "^5.9.0"
+  }
+}
