@@ -46,6 +46,10 @@ public struct FeedPost: Decodable, Identifiable, Sendable {
     public let profileCert: SignedCertificate
     public let captureCert: SignedCertificate
     public let createdAt: String?
+    /// Reaction totals. Every reaction was made by an enrolled device with App Attest.
+    public let reactions: ReactionCounts?
+    /// This device's own reaction, when the feed was loaded by an enrolled device.
+    public let myReaction: Reaction?
 
     public struct Author: Decodable, Sendable {
         public let handle: String
@@ -59,6 +63,8 @@ public struct FeedPost: Decodable, Identifiable, Sendable {
 public struct VerifiedPost: Identifiable, Sendable {
     public let post: FeedPost
     public let imageData: Data?
+    /// The author's profile photo, if they set one. It is not a verified capture.
+    public let avatarData: Data?
     public let verification: Verification
     public var id: String { post.id }
 

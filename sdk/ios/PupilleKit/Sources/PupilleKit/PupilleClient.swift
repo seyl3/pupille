@@ -127,11 +127,16 @@ public final class PupilleClient {
     /// Fetches the feed and each post's exact bytes, and verifies every post on this device.
     public func loadFeed() async throws -> [VerifiedPost] {
         let api = api
-        let posts: [FeedPost] = try await api.get("/v1/feed")
+        let viewer = identity.storedProfileID.map { ["x-profile-id": $0.hex] } ?? [:]
+        let posts: [FeedPost] = try await api.get("/v1/feed", headers: viewer)
+        var avatars: [String: Data] = [:]
         var verified: [VerifiedPost] = []
         for post in posts {
             let image = try? await api.bytes(post.imageUrl)
-            verified.append(VerifiedPost(post: post, imageData: image,
+            if let avatarURL = post.author.avatarUrl, avatars[post.author.handle] == nil {
+                avatars[post.author.handle] = try? await api.bytes(avatarURL)
+            }
+            verified.append(VerifiedPost(post: post, imageData: image, avatarData: avatars[post.author.handle],
                 verification: image.map { verify(PupilleProof(post), imageData: $0) }
                     ?? Verification(checks: [], handle: nil, environment: nil, appID: nil)))
         }
