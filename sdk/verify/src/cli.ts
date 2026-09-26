@@ -15,7 +15,9 @@ const usage = `pupille-proof — portable proofs for Pupille photos
       Default issuer: the key pinned in the Pupille app.`;
 
 async function exportProofs(backend: string, postId: string | undefined, outDir: string) {
-  const response = await fetch(new URL("/v1/feed", backend));
+  const response = await fetch(new URL("/v1/feed", backend)).catch(() => {
+    throw new Error(`could not reach the backend at ${backend}. Is it running?`);
+  });
   if (!response.ok) throw new Error(`GET /v1/feed returned ${response.status}`);
   const posts = (await response.json()) as (FeedPost & { imageUrl: string })[];
   const selected = postId ? posts.filter((p) => p.id === postId) : posts;
