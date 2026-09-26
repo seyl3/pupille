@@ -1,5 +1,7 @@
 # Agent task: build Pupille on Linux
 
+> Historical Linux build checklist. It records what was completed under the earlier backend contract. The current product credential is Orb-backed Proof of Human; see [ARCHITECTURE.md](ARCHITECTURE.md) and [IPHONE_TESTING.md](IPHONE_TESTING.md) for the active design and staging test path.
+
 Source of truth for scope: `docs/ARCHITECTURE.md`. This file breaks that architecture's
 build plan (§18) into concrete, checkable sections for an agent working on a Linux
 machine with no Xcode, no iOS Simulator, and no physical iPhone.

@@ -1,5 +1,19 @@
 # Agent worklog
 
+## 2026-09-27: first physical-iPhone build
+
+`ios/Pupille/Pupille.xcodeproj` now contains an installable SwiftUI device-check app. It can capture a camera photo and hash the exact bytes, create a temporary Secure Enclave P-256 signing key and verify its signature, and request a genuine App Attest attestation from Apple. Its **Verify on Mac** flow sends a fresh attestation to the standalone `backend/src/attestProbe.ts` server, which verifies Apple's certificate and a one-time challenge without Postgres. It does not yet create a World ID profile or publish to the feed. The earlier Linux handoff below remains the history of the protocol/backend implementation; its statement that no iOS target exists was true at that time.
+
+An unsigned `xcodebuild` for generic physical iOS completed successfully on Xcode 27. The user then signed and installed the app on the paired iPhone with their Apple Team. Follow [IPHONE_TESTING.md](IPHONE_TESTING.md).
+
+Physical iPhone 14 Pro (iOS 26.5.2) result reported by the user: camera captured 559,302 bytes and hashed them; Secure Enclave key signed and verified with Face ID; Apple's App Attest service returned 5,818 attestation bytes. The independent Mac probe subsequently returned `PASS: Mac verified Apple’s certificate`. This validates the signed app's real App Attest chain and challenge, but not World ID or publishing. The screenshots also showed unreadable white button labels on white buttons; the device-check UI now uses explicit contrasting colors for those buttons. The user supplied `pupille-logo.png`, now configured as the Home Screen icon, and requested a walkthrough for display name, version, and launch screen; this is recorded in [IPHONE_TESTING.md](IPHONE_TESTING.md).
+
+Follow-up device retry exposed a real CBOR compatibility issue: Apple's untagged COSE key decoded to a plain object in `cbor-x`, while the verifier assumed a `Map` (the fixture encoder had added a Map tag). The probe returned `probe_internal_error` with `TypeError: cose.get is not a function`. `coseKeyToX963` now accepts either representation and validates 32-byte coordinates. A regression fixture uses the untagged wire encoding. Backend build and all 14 App Attest tests pass; after restarting the probe, the same iPhone returned `PASS: Mac verified Apple’s certificate`. The earlier connection failure was because the probe process had been stopped; local Wi-Fi alone did not start it.
+
+World ID policy, confirmed with the user: the production app requires **Orb-backed Proof of Human**, because Selfie Check is weaker than the one-profile-per-unique-human claim. The no-Orb demo will use an official **staging Human test identity** in [World's simulator](https://simulator.worldcoin.org/), preferably through the World ID 4.0 `proofOfHuman` preset. The simulator repository documents native 4.0 staging Proof of Human via its MCP, but the specific iPhone-to-browser flow still needs an end-to-end test. If that browser flow only completes legacy Orb requests, the staging fallback is `orbLegacy` at profile creation; no per-post World session proof may be claimed in that mode. The [architecture](ARCHITECTURE.md) and [iPhone guide](IPHONE_TESTING.md) now encode this policy.
+
+Backend `@worldcoin/idkit-core` is 4.3.0, but the installable iOS target does not include IDKit Swift yet. There is no Developer Portal app/RP/action, no server-held RP signing key, and no local Postgres setup on the current Mac. The backend schema and World fixture still reflect the earlier session-only model; they have not yet been migrated to the Proof of Human staging flow. The live verifier has not been proven against World v4: `backend/src/world/verifyClient.ts` expects a top-level `signal_hash` in the verify response, while the [current v4 examples](https://docs.world.org/world-id/idkit/integrate) put it in IDKit `responses[]` and show a verify response with `results[]` but no top-level `signal_hash`. Reconcile and test that contract before enabling live verification. The configured verify base was updated to `https://developer.world.org` per the current [API reference](https://docs.world.org/api-reference/developer-portal/verify).
+
 ## Status (2026-09-26, agent/linux-build)
 
 All of 5A, 5B, 5D, and 5E are implemented with real, passing tests against real
@@ -125,9 +139,10 @@ What's a stand-in, always clearly labeled in the source as such:
   `session_nullifier`) are this agent's best-documented understanding, not
   independently confirmed against a live response. See
   `backend/src/world/verifyClient.ts`'s `WorldVerifyResult` doc comment.
-- **World App / IDKit interactive flow**: `returnTo` deep-linking, the actual
-  World App approval UI, and Selfie Check itself all require the real World
-  App on a real device — nothing to substitute here even in principle.
+- **World App / IDKit interactive flow**: `returnTo` deep-linking and the
+  production World App approval UI were not tested during this Linux build.
+  The later iPhone test plan uses World's staging simulator and a Human test
+  identity for Proof of Human integration, without treating it as a real Orb scan.
 - **LiDAR flatness** (§06 `depthHash`, §12 `flatness` field): the byte-spec
   derivation handles depth bytes correctly (including the no-depth zero-hash
   case), but there is no LiDAR sensor to capture real depth data with, and the

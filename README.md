@@ -1,1 +1,5 @@
-# pupille
+# Pupille
+
+Pupille is an iOS photo feed designed for ETHGlobal Tokyo's World track. It aims to let a viewer verify the exact image bytes, an app attestation, and the World-backed pseudonymous author of a post.
+
+**Current state:** the protocol library, TypeScript backend, fake-phone integration harness, and a first installable iPhone device-check app exist. The iPhone app passes camera, Secure Enclave, and App Attest checks; its genuine attestation has also been verified by a local Mac server. The supplied Pupille logo is configured as its Home Screen icon. World ID and publishing are next. Pupille's [architecture](docs/ARCHITECTURE.md) requires Orb-backed Proof of Human. The demo will use a Human test identity in [World's staging simulator](https://simulator.worldcoin.org/) to exercise the official proof flow without an Orb visit. Open [the Xcode project](ios/Pupille/Pupille.xcodeproj) and follow [the iPhone testing guide](docs/IPHONE_TESTING.md) for the short Developer Portal checklist and current device status. The backend and iOS app do not yet implement the live Proof of Human flow; see [the worklog](docs/WORKLOG.md) for the remaining integration work.
