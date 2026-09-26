@@ -6,3 +6,5 @@
 - [ ] Test profile photo replacement, persistence after relaunch, and display on other devices.
 - [ ] Test a fresh signup, capture publish, proof detail sheet, and all four reactions on the iPhone.
 - [ ] Confirm the second iPhone can browse and audit the feed without a World profile.
+- [ ] Confirm the second iPhone can open the author's public profile from the feed.
+- [ ] Use Profile → Development → Reset demo from scratch, then verify a fresh signup and empty feed.
