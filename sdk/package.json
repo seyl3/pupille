@@ -5,6 +5,7 @@
   "scripts": {
     "build": "npm run build -w @pupille/verify",
     "test": "npm test -w @pupille/verify",
-    "verifier": "npm run build && node verify/dist/serve.js"
+    "verifier": "npm run build && node web-verifier/serve.mjs",
+    "samples": "node verify/scripts/make-samples.ts"
   }
 }

@@ -1,0 +1,12 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "web-verifier",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["--prefix", "sdk", "run", "verifier"],
+      "port": 8790,
+      "url": "http://localhost:8790"
+    }
+  ]
+}

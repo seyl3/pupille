@@ -26,6 +26,8 @@ export interface VerificationResult {
   verified: boolean;
   checks: Check[];
   handle?: string;
+  /** The caption the author signed, when the caption check passed. */
+  caption?: string | null;
   /** World environment of the author's Proof of Human: "staging" or "production". */
   environment?: string;
   /** App Attest app ID the issuer certified the capture for. */
@@ -149,6 +151,7 @@ export async function verifyProof(
     verified: checks.every((c) => c.passed),
     checks,
     handle: profile?.handle,
+    caption: captionMatches ? proof.caption : undefined,
     environment: profile?.environment,
     appId: capture?.appId,
     postId: capture?.postId ?? proof.postId,
