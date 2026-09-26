@@ -34,7 +34,7 @@ export function captureRoutes(pool: pg.Pool) {
     );
     if (activeKey.rowCount === 0) return c.json({ error: "no_active_key" }, 400);
 
-    const attestKeyRow = await pool.query("select key_id from app_attest_keys order by created_at desc limit 1");
+    const attestKeyRow = await pool.query("select app_attest_key_id as key_id from profiles where id = $1", [hexDecode(profileIdHex)]);
     if (attestKeyRow.rowCount === 0) return c.json({ error: "attest_unsupported" }, 400);
 
     const challenge = randomBytes(32);
@@ -69,6 +69,11 @@ export function captureRoutes(pool: pg.Pool) {
     const depthBytes = body.depthBase64 ? Buffer.from(body.depthBase64, "base64") : null;
     const assertion = Buffer.from(body.assertionBase64, "base64");
     const profilePublicKey = hexDecode(body.profilePublicKey);
+    const boundKey = await pool.query(
+      "select 1 from profile_keys where profile_id=$1 and key_version=$2 and public_key=$3 and status='active'",
+      [row.profile_id, row.key_version, profilePublicKey]
+    );
+    if (!boundKey.rowCount) return c.json({ error: "profile_key_mismatch" }, 400);
 
     const imgHash = computeImageHash(imageBytes);
     const dHash = computeDepthHash(depthBytes);
@@ -203,7 +208,7 @@ export function captureRoutes(pool: pg.Pool) {
           keyVersion,
           id,
           row.pending_image,
-          "application/octet-stream",
+          "image/jpeg",
           row.pending_depth,
           body.caption ?? null,
           row.post_signature,
@@ -221,6 +226,58 @@ export function captureRoutes(pool: pg.Pool) {
         return c.json({ error: "session_nullifier_replayed" }, 409);
       }
       throw err;
+    } finally {
+      client.release();
+    }
+  });
+
+  // Current native IDKit supports the Proof of Human uniqueness request, but does
+  // not expose session proofs. A verified profile may publish with its bound Secure
+  // Enclave key and fresh App Attest assertion. The certificate records that no
+  // per-post World session proof was obtained.
+  app.post("/:id/publish", async (c) => {
+    const id = c.req.param("id");
+    const body = await c.req.json<{ caption?: string }>();
+    const client = await pool.connect();
+    try {
+      await client.query("BEGIN");
+      const challenge = await client.query(
+        "select * from capture_challenges where id=$1 and status='device_ok' and expires_at>now() for update", [id]
+      );
+      if (!challenge.rowCount) {
+        await client.query("ROLLBACK");
+        return c.json({ error: "challenge_not_ready" }, 400);
+      }
+      const row = challenge.rows[0];
+      const profile = await client.query("select credential from profiles where id=$1", [row.profile_id]);
+      if (profile.rows[0]?.credential !== "proof_of_human") {
+        await client.query("ROLLBACK");
+        return c.json({ error: "human_profile_required" }, 400);
+      }
+      const postId = ulid();
+      const caption = body.caption?.slice(0, 500) ?? null;
+      const cert = Buffer.from(JSON.stringify({
+        v: 1, type: "capture", issuer: "pupille-backend-1", postId,
+        appId: config.appId, profileId: hex(row.profile_id), keyVersion: row.key_version,
+        imageSha256: hex(row.image_sha256), depthSha256: hex(row.depth_sha256),
+        captionSha256: caption ? computeImageHash(Buffer.from(caption, "utf8")).toString("hex") : null,
+        challenge: hex(row.challenge), assertionSha256: hex(row.assertion_sha256),
+        captureCommitment: hex(row.commitment), challengeIssuedAt: row.issued_at,
+        worldSession: false, certifiedAt: new Date().toISOString(),
+      }), "utf8");
+      const signature = signCertificate(cert);
+      await client.query(
+        `insert into posts (id, profile_id, key_version, challenge_id, image, content_type, depth, caption,
+         post_signature, capture_cert, capture_cert_sig) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+        [postId, row.profile_id, row.key_version, id, row.pending_image, "image/jpeg", row.pending_depth,
+          caption, row.post_signature, cert, signature]
+      );
+      await client.query("update capture_challenges set status='used', pending_image=null, pending_depth=null where id=$1", [id]);
+      await client.query("COMMIT");
+      return c.json({ postId });
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
     } finally {
       client.release();
     }

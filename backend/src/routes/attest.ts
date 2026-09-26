@@ -9,6 +9,15 @@ const challenges = new Map<string, { challenge: Buffer; expiresAt: number }>();
 export function attestRoutes(pool: pg.Pool) {
   const app = new Hono();
 
+  app.post("/status", async (c) => {
+    const body = await c.req.json<{ keyId: string }>();
+    if (typeof body.keyId !== "string" || body.keyId.length > 512) {
+      return c.json({ error: "invalid_key_id" }, 400);
+    }
+    const existing = await pool.query("select 1 from app_attest_keys where key_id=$1", [body.keyId]);
+    return c.json({ registered: Boolean(existing.rowCount) });
+  });
+
   // POST /v1/attest/challenge
   app.post("/challenge", async (c) => {
     const challenge = randomBytes(32);

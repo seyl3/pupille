@@ -4,12 +4,15 @@ create extension if not exists citext;
 create table if not exists profiles (
   id          bytea primary key,                 -- 16-byte profileId
   nullifier   numeric(78,0) unique not null,      -- uniqueness proof (pupille-profile-v1); never leaves the server
-  session_id  text unique not null,               -- World session_<128 hex>; continuity anchor
+  session_id  text unique,                        -- populated when World sessions are available
   sybil_score int,                                -- Selfie Check risk signal (stored, not shown)
   handle      citext unique not null check (handle ~ '^[a-z0-9_]{3,20}$'),
   credential  text not null,
+  app_attest_key_id text,
   created_at  timestamptz not null default now()
 );
+alter table profiles alter column session_id drop not null;
+alter table profiles add column if not exists app_attest_key_id text;
 
 create table if not exists profile_keys (
   profile_id   bytea not null references profiles(id),
@@ -25,8 +28,14 @@ create unique index if not exists one_active_key on profile_keys(profile_id) whe
 create table if not exists profile_sessions (   -- handle reservation + pending proof
   id text primary key, profile_id bytea not null, public_key bytea not null,
   handle citext not null, app_attest_key_id text not null,
+  world_nonce text,
+  device_verified boolean not null default false,
+  device_counter bigint,
   expires_at timestamptz not null, used boolean not null default false
 );
+alter table profile_sessions add column if not exists world_nonce text;
+alter table profile_sessions add column if not exists device_verified boolean not null default false;
+alter table profile_sessions add column if not exists device_counter bigint;
 
 create table if not exists world_session_nullifiers (  -- per-proof replay protection
   nullifier numeric(78,0) not null, action text not null,

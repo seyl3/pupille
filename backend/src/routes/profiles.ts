@@ -196,9 +196,9 @@ export function profileRoutes(pool: pg.Pool) {
     try {
       await client.query("BEGIN");
       await client.query(
-        `insert into profiles (id, nullifier, session_id, sybil_score, handle, credential)
-         values ($1, $2, $3, $4, $5, $6)`,
-        [profileId, body.nullifier, verifyResult.session_id, verifyResult.sybil_score ?? null, row.handle, "selfie"]
+        `insert into profiles (id, nullifier, session_id, sybil_score, handle, credential, app_attest_key_id)
+         values ($1, $2, $3, $4, $5, $6, $7)`,
+        [profileId, body.nullifier, verifyResult.session_id, verifyResult.sybil_score ?? null, row.handle, "proof_of_human", row.app_attest_key_id]
       );
       await client.query("update app_attest_keys set counter = $1 where key_id = $2", [
         profileAssertionResult.counter,
@@ -213,7 +213,7 @@ export function profileRoutes(pool: pg.Pool) {
         handle: row.handle,
         keyVersion: 1,
         publicKey: publicKey.toString("base64"),
-        credential: "selfie",
+        credential: "proof_of_human",
         uniquenessAction: UNIQUENESS_ACTION,
         worldSession: true,
         profileCommitment: hex(commitment),
@@ -297,7 +297,7 @@ export function profileRoutes(pool: pg.Pool) {
         handle,
         keyVersion: nextVersion,
         publicKey: newPublicKey.toString("base64"),
-        credential: "selfie",
+        credential: "proof_of_human",
         uniquenessAction: UNIQUENESS_ACTION,
         worldSession: true,
         profileCommitment: hex(newCommitment),

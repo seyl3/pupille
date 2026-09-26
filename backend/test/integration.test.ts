@@ -24,6 +24,7 @@ let pool: pg.Pool;
 let app: ReturnType<typeof createApp>;
 
 beforeAll(async () => {
+  process.env.PUPILLE_ENABLE_LEGACY_ROUTES = "1";
   pool = await makeTestPool();
   app = createApp(pool);
 });
@@ -120,6 +121,83 @@ describe("full profile-creation → capture → publish → feed chain (real Pos
     const { handle, completeBody } = await createProfile("alice");
     expect((completeBody as any).handle).toBe(handle);
     expect((completeBody as any).profileCert.certB64).toBeTruthy();
+  });
+
+  it("onboards with a bound Human proof and publishes a signed device capture", async () => {
+    const { attestKeyId, credentialPrivateKey } = await registerAttestKey("test.pupille");
+    const attestStatus = await app.request("/v1/attest/status", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ keyId: attestKeyId }),
+    });
+    expect(await attestStatus.json()).toEqual({ registered: true });
+    const key = new SoftwareProfileKeyForTests();
+    const profileId = Buffer.alloc(16, 42);
+    const handle = "human_mvp";
+    const startRes = await app.request("/v1/onboard/start", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ profileId: hex(profileId), publicKey: hex(key.publicKeyX963), handle, attestKeyId }),
+    });
+    expect(startRes.status).toBe(200);
+    const start = await startRes.json() as { reservationId: string; rpContext: { nonce: string }; worldSignal: string };
+    const commitment = profileCommitment(profileId, key.publicKeyX963, handle);
+    expect(start.worldSignal).toBe(profileSignal(commitment));
+    const proof = { ...buildWorldProofFixture({ signal: start.worldSignal, kind: "uniqueness" }),
+      action: "pupille-profile-v1", nonce: start.rpContext.nonce };
+    const { assertionCbor: profileAssertion } = await buildAssertionFixture({
+      appId: "test.pupille", clientDataHash: profileAssertClientDataHash(commitment),
+      counter: 1, credentialPrivateKey,
+    });
+    const deviceCheck = await app.request("/v1/onboard/device", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reservationId: start.reservationId,
+        profilePoP: hex(key.sign(profilePoPMessage(commitment))),
+        assertionBase64: profileAssertion.toString("base64") }),
+    });
+    expect(deviceCheck.status).toBe(200);
+    const complete = await app.request("/v1/onboard/complete", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ reservationId: start.reservationId, result: proof }),
+    });
+    expect(complete.status).toBe(200);
+    const profile = await pool.query("select credential, session_id, app_attest_key_id from profiles where id=$1", [profileId]);
+    expect(profile.rows[0]).toMatchObject({ credential: "proof_of_human", session_id: null, app_attest_key_id: attestKeyId });
+
+    const challengeRes = await app.request("/v1/captures/challenge", {
+      method: "POST", headers: { "x-profile-id": hex(profileId) },
+    });
+    expect(challengeRes.status).toBe(200);
+    const challenge = await challengeRes.json() as { challengeId: string; challenge: string };
+    const challengeBytes = Buffer.from(challenge.challenge, "hex");
+    const image = Buffer.from("real-camera-payload-fixture");
+    const imgHash = imageHash(image);
+    const dHash = depthHash(null);
+    const { assertionCbor: captureAssertion } = await buildAssertionFixture({
+      appId: "test.pupille", clientDataHash: clientDataHash(imgHash, dHash, challengeBytes),
+      counter: 2, credentialPrivateKey,
+    });
+    const capture = captureCommitment(imgHash, dHash, challengeBytes, assertionHash(captureAssertion), profileId, key.publicKeyX963);
+    const device = await app.request(`/v1/captures/${challenge.challengeId}/device`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ imageBase64: image.toString("base64"),
+        assertionBase64: captureAssertion.toString("base64"),
+        postSignature: hex(key.sign(postSignatureMessage(capture))),
+        profilePublicKey: hex(key.publicKeyX963) }),
+    });
+    expect(device.status).toBe(200);
+    const published = await app.request(`/v1/captures/${challenge.challengeId}/publish`, {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ caption: "first verified photo" }),
+    });
+    expect(published.status).toBe(200);
+    const again = await app.request(`/v1/captures/${challenge.challengeId}/publish`, {
+      method: "POST", headers: { "content-type": "application/json" }, body: "{}",
+    });
+    expect(again.status).toBe(400);
+    const feed = await (await app.request("/v1/feed")).json() as Array<{ id: string; caption: string }>;
+    expect(feed).toHaveLength(1);
+    expect(feed[0].caption).toBe("first verified photo");
+    const imageResponse = await app.request(`/v1/posts/${feed[0].id}/image`);
+    expect(Buffer.from(await imageResponse.arrayBuffer())).toEqual(image);
   });
 
   it("rejects /profiles/complete when the App Attest profile assertion is signed by the wrong key", async () => {

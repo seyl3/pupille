@@ -6,3 +6,4 @@ dist/
 tools/fake-phone/.test-root/
 **/xcuserdata/
 backend/.env.world.local
+backend/.secrets/
