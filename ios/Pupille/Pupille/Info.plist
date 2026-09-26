@@ -34,7 +34,7 @@
 	<key>NSFaceIDUsageDescription</key>
 	<string>Pupille uses Face ID to approve profile signatures.</string>
 	<key>NSLocalNetworkUsageDescription</key>
-	<string>Pupille connects to the development backend on your Mac to verify App Attest.</string>
+	<string>Pupille connects to the development backend on your Mac to verify App Attest and read the World ID test result.</string>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>

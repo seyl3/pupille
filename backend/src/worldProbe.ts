@@ -155,6 +155,20 @@ createServer((req, res) => {
   console.log("World ID staging probe ready: http://127.0.0.1:8790");
 });
 
+// The phone receives only the verification outcome. The connector URL and its
+// bridge encryption key remain on the Mac's loopback-only page above.
+createServer((req, res) => {
+  res.setHeader("cache-control", "no-store");
+  if (req.method !== "GET" || req.url !== "/status") {
+    res.writeHead(404).end();
+    return;
+  }
+  res.setHeader("content-type", "application/json");
+  res.end(JSON.stringify({ state, message }));
+}).listen(8791, "0.0.0.0", () => {
+  console.log("World ID result available to the iPhone on port 8791");
+});
+
 void request.pollUntilCompletion({ timeout: 10 * 60_000 }).then(async (completion) => {
   if (!completion.success) throw new Error(`IDKit request failed: ${completion.error}`);
   state = "verifying";

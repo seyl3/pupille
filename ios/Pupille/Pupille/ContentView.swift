@@ -1,9 +1,14 @@
 import SwiftUI
 
 struct ContentView: View {
+    @Environment(\.scenePhase) private var scenePhase
     @StateObject private var checks = DeviceChecks()
     @State private var showCamera = false
+    @State private var worldResult = "Ready to request a staging Human proof."
+    @State private var worldStarted = false
+    @State private var worldBusy = false
     @AppStorage("attestProbeURL") private var attestProbeURL = "http://mac.local:8788"
+    @AppStorage("worldProbeURL") private var worldProbeURL = "http://mac.local:8791"
 
     var body: some View {
         NavigationStack {
@@ -15,7 +20,7 @@ struct ContentView: View {
                             .foregroundStyle(.secondary)
                         Text("Test the iPhone first.")
                             .font(.largeTitle.bold())
-                        Text("These checks use your real camera and device keys. They do not publish a post or create a World ID profile yet.")
+                        Text("Test the real camera and device keys, then verify a staging Human proof with World Simulator.")
                             .foregroundStyle(.secondary)
                     }
 
@@ -45,6 +50,41 @@ struct ContentView: View {
                     ) {
                         Task { await checks.testAppAttest() }
                     }
+
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text("World ID / Human")
+                            .font(.title2.weight(.semibold))
+                        Text("On your Mac, open 127.0.0.1:8790 and present a Human proof in World Simulator. This iPhone reads only World’s verified result.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                        TextField("Mac World probe URL", text: $worldProbeURL)
+                            .textInputAutocapitalization(.never)
+                            .autocorrectionDisabled()
+                            .keyboardType(.URL)
+                            .textContentType(.URL)
+                            .padding(12)
+                            .background(Color(uiColor: .secondarySystemBackground), in: RoundedRectangle(cornerRadius: 10))
+                        Button {
+                            worldStarted = true
+                            Task { await refreshWorldStatus() }
+                        } label: {
+                            Text("Check World result")
+                                .font(.headline)
+                                .foregroundStyle(Color(uiColor: .systemBackground))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 12)
+                                .background(Color.primary, in: Capsule())
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(worldBusy)
+                        Text(worldResult)
+                            .font(.footnote.monospaced())
+                            .foregroundStyle(worldResult.hasPrefix("PASS") ? Color.green : Color.secondary)
+                            .textSelection(.enabled)
+                    }
+                    .padding(18)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
 
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Verify on Mac")
@@ -80,7 +120,7 @@ struct ContentView: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
 
-                    Text("Next: save the attested key, then add World ID and publishing.")
+                    Text("Staging verifies the demo proof. Profile creation and publishing are the next product steps.")
                         .font(.footnote)
                         .foregroundStyle(.secondary)
                 }
@@ -93,7 +133,38 @@ struct ContentView: View {
                     checks.cameraResult = result
                 }
             }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active && worldStarted {
+                    Task { await refreshWorldStatus() }
+                }
+            }
         }
+    }
+
+    @MainActor
+    private func refreshWorldStatus() async {
+        worldBusy = true
+        defer { worldBusy = false }
+        do {
+            let base = try worldBaseURL()
+            let (data, response) = try await URLSession.shared.data(from: base.appending(path: "status"))
+            guard (response as? HTTPURLResponse)?.statusCode == 200 else {
+                throw WorldProbeError.invalidResponse
+            }
+            let status = try JSONDecoder().decode(WorldProbeStatus.self, from: data)
+            worldResult = "\(status.state == "passed" ? "PASS" : status.state == "failed" ? "FAIL" : status.state.uppercased()): \(status.message)"
+        } catch {
+            worldResult = "FAIL: Could not reach Mac World probe: \(error.localizedDescription)"
+        }
+    }
+
+    private func worldBaseURL() throws -> URL {
+        guard let url = URL(string: worldProbeURL.trimmingCharacters(in: .whitespacesAndNewlines)),
+              ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+              url.host != nil else {
+            throw WorldProbeError.invalidURL
+        }
+        return url
     }
 
     private func checkCard(
@@ -124,5 +195,22 @@ struct ContentView: View {
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 18))
+    }
+}
+
+private struct WorldProbeStatus: Decodable {
+    let state: String
+    let message: String
+}
+
+private enum WorldProbeError: LocalizedError {
+    case invalidURL
+    case invalidResponse
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidURL: "Enter the Mac result URL, for example http://mac.local:8791"
+        case .invalidResponse: "The Mac probe returned an unexpected response"
+        }
     }
 }
