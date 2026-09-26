@@ -4,7 +4,6 @@ import SwiftUI
 struct ReviewComposer: View {
     @EnvironmentObject private var store: Store
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.openURL) private var openURL
     let product: Product
 
     @State private var stars = 0
@@ -12,7 +11,6 @@ struct ReviewComposer: View {
     @State private var text = ""
     @State private var photo: CapturedPhoto?
     @State private var showCamera = false
-    @State private var backendURL = ""
 
     private var ready: Bool { stars > 0 && !headline.isEmpty && !text.isEmpty && photo != nil }
 
@@ -23,6 +21,10 @@ struct ReviewComposer: View {
                     HStack(spacing: 12) {
                         Image(systemName: "headphones").font(.title).frame(width: 44)
                         Text(product.title).font(.footnote).lineLimit(2)
+                    }
+                    if let reviewer = store.reviewer {
+                        Label("Posting as \(reviewer) · verified human", systemImage: "checkmark.shield.fill")
+                            .font(.footnote).foregroundStyle(Palette.badge)
                     }
                 }
                 Section("Overall rating") {
@@ -56,15 +58,7 @@ struct ReviewComposer: View {
                 } header: {
                     Text("Add a photo")
                 } footer: {
-                    Text("Photos come only from the in-app camera. Face ID signs the exact photo on this iPhone. The first time, you'll also prove you're a real person with World ID. No account needed.")
-                }
-                Section {
-                    DisclosureGroup("Development backend") {
-                        TextField(Store.defaultBackend, text: $backendURL)
-                            .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
-                        Button("Save") { store.backendURL = backendURL }
-                    }
-                    .font(.footnote)
+                    Text("Photos come only from the in-app camera. When you submit, Face ID signs the exact photo on this iPhone.")
                 }
             }
             .navigationTitle("Create review")
@@ -81,24 +75,8 @@ struct ReviewComposer: View {
                     }
                 }
             }
-            .onAppear { backendURL = store.backendURL }
             .fullScreenCover(isPresented: $showCamera) {
                 PupilleCameraView(onCapture: { photo = $0 }, onFailure: { store.message = $0.localizedDescription })
-            }
-            .sheet(item: $store.pendingWorldProof) { request in
-                VStack(spacing: 16) {
-                    Image(systemName: "person.badge.shield.checkmark").font(.system(size: 44))
-                    Text("Prove you're a real person").font(.title2.bold())
-                    Text("One time only. Your identity stays private; the store only learns that a unique human took your review photos.")
-                        .multilineTextAlignment(.center).foregroundStyle(.secondary)
-                    Button(request.environment == .staging ? "Open World Simulator" : "Open World App") {
-                        openURL(request.approvalURL)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    ProgressView("Waiting for approval…").font(.footnote)
-                }
-                .padding(32)
-                .presentationDetents([.medium])
             }
         }
         .interactiveDismissDisabled(store.submitting)

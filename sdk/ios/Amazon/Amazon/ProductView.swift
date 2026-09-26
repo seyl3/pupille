@@ -25,7 +25,10 @@ struct Product {
 struct ProductView: View {
     @EnvironmentObject private var store: Store
     @State private var writing = false
+    @State private var signingIn = false
+    @State private var composeAfterSignIn = false
     @State private var proofFor: Review?
+    @State private var backendURL = ""
     private let product = Product()
 
     var body: some View {
@@ -39,13 +42,35 @@ struct ProductView: View {
                     Text("Demo app for ETHGlobal Tokyo. Not affiliated with Amazon.")
                         .font(.caption2).foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity).padding(.top, 24)
+                    DisclosureGroup("Development backend") {
+                        HStack {
+                            TextField(Store.defaultBackend, text: $backendURL)
+                                .textInputAutocapitalization(.never).autocorrectionDisabled().keyboardType(.URL)
+                            Button("Save") {
+                                store.backendURL = backendURL
+                                Task { await store.loadReviews(for: product.id) }
+                            }
+                        }
+                    }
+                    .font(.caption).foregroundStyle(.secondary)
                 }
                 .padding(16)
             }
             .refreshable { await store.loadReviews(for: product.id) }
         }
         .background(Color(.systemBackground))
-        .task { await store.loadReviews(for: product.id) }
+        .task {
+            backendURL = store.backendURL
+            await store.loadReviews(for: product.id)
+        }
+        .sheet(isPresented: $signingIn, onDismiss: {
+            if composeAfterSignIn {
+                composeAfterSignIn = false
+                writing = true
+            }
+        }) {
+            SignInView { composeAfterSignIn = true }
+        }
         .sheet(isPresented: $writing) { ReviewComposer(product: product) }
         .sheet(item: $proofFor) { ProofSheet(review: $0) }
     }
@@ -124,11 +149,23 @@ struct ProductView: View {
                 .font(.footnote)
                 .padding(12)
                 .background(Color(white: 0.96), in: RoundedRectangle(cornerRadius: 8))
-            Button { writing = true } label: {
+            Button {
+                // The integration point: verify with Pupille only when someone wants to post a photo review.
+                if store.reviewer == nil { signingIn = true } else { writing = true }
+            } label: {
                 Text("Write a customer review")
                     .font(.subheadline).foregroundStyle(.black)
                     .frame(maxWidth: .infinity).padding(.vertical, 10)
                     .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color(white: 0.7)))
+            }
+            if let reviewer = store.reviewer {
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.shield.fill").foregroundStyle(Palette.badge)
+                    Text("Verified human · \(reviewer)").font(.caption)
+                    Spacer()
+                    Button("Sign out") { store.signOut() }
+                        .font(.caption).foregroundStyle(Palette.link)
+                }
             }
             Text("Top reviews from Japan").font(.headline).padding(.top, 8)
             if store.reviews.isEmpty {

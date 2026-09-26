@@ -19,6 +19,8 @@ struct Review: Identifiable {
 @MainActor
 final class Store: ObservableObject {
     @Published private(set) var reviews: [Review] = []
+    /// The reviewer's pseudonymous handle once this iPhone has signed in with Pupille.
+    @Published private(set) var reviewer: String?
     @Published var pendingWorldProof: WorldIDVerification?
     @Published var message: String?
     @Published private(set) var submitting = false
@@ -36,6 +38,7 @@ final class Store: ObservableObject {
             issuerPublicKey: Data(hex: "46699f0e689eb90902f3a7f3850b7dde146b77389161e3a1caa8d8062da92fb8")!,
             trustedAppIDs: ["4397GAXGZ4.app.pupille.sample"]
         ))
+        reviewer = pupille.enrolledHandle
     }
 
     var backendURL: String {
@@ -60,26 +63,42 @@ final class Store: ObservableObject {
         }
     }
 
-    /// No account: the first review on this iPhone runs the one-time World ID check,
-    /// then every review photo is signed with Face ID.
-    func submit(_ content: ReviewContent, photo: CapturedPhoto) async -> Bool {
+    /// "Continue with Pupille": one Face ID prompt to create this iPhone's signing key and
+    /// check App Attest, then one World ID Proof of Human. No store account or password.
+    func signIn() async -> Bool {
         submitting = true
         defer { submitting = false }
         do {
-            if pupille.enrolledHandle == nil {
-                let request = try await pupille.beginEnrollment(handle: Self.anonymousHandle())
-                pendingWorldProof = request
-                _ = try await request.result()
-                pendingWorldProof = nil
-            }
-            _ = try await pupille.publish(photo, caption: Self.caption(for: content))
-            await loadReviews(for: content.product)
+            let request = try await pupille.beginEnrollment(handle: Self.anonymousHandle())
+            pendingWorldProof = request
+            let enrollment = try await request.result()
+            pendingWorldProof = nil
+            reviewer = enrollment.handle
             return true
         } catch {
             pendingWorldProof = nil
             message = error.localizedDescription
             return false
         }
+    }
+
+    /// Face ID signs the exact photo, and the backend checks a fresh App Attest assertion.
+    func submit(_ content: ReviewContent, photo: CapturedPhoto) async -> Bool {
+        submitting = true
+        defer { submitting = false }
+        do {
+            _ = try await pupille.publish(photo, caption: Self.caption(for: content))
+            await loadReviews(for: content.product)
+            return true
+        } catch {
+            message = error.localizedDescription
+            return false
+        }
+    }
+
+    func signOut() {
+        pupille.signOut()
+        reviewer = nil
     }
 
     /// The backend keeps 500 characters of a caption, so shorten the body until the JSON fits.
