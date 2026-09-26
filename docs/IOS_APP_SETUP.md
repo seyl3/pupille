@@ -22,11 +22,51 @@ the whole project (see `docs/WORKLOG.md` HANDOFF), so don't leave it for last.
 - A World Developer Portal account with an app created, `app_id`/`rp_id` issued, and Selfie
   Check enabled for it (see §19's open questions — confirm 4.0 sessions are live where you
   test before building on the assumption that they are).
+  - **Note on the credential itself:** Selfie Check is a front-camera face-liveness check
+    (a short selfie/video), not an Orb iris scan — Orb is explicitly the *optional, stronger*
+    credential in this design (§16: `accepted, shown` but never `required`), chosen precisely
+    so no one needs to visit an Orb. Nothing in this project's real flow asks for a retina
+    scan at any point.
+  - **If you don't want to use your own face/biometrics at all while developing**, use World's
+    `staging` environment + the browser-based simulator instead of a real World App session —
+    see step 1a below. That's a real, World-issued proof from a mock identity, not a stub.
 - `git clone` this repo (or `git fetch` + `git checkout agent/linux-build` if you already
   have it), and pull `ios/PupilleCore` in as-is — it's a normal SwiftPM package, no changes
   needed to use it from Xcode.
 
 ## 1. De-risk `WorldIDService` first (do this before anything else)
+
+### 1a. Use `staging` + the World ID simulator to avoid biometrics during development
+
+World documents two non-production test paths (§03's research table, row "Testing"):
+
+- **`staging` environment + `simulator.worldcoin.org`** — a browser-based simulator that
+  stands in for the real World App. When the app would normally hand off to the World App,
+  `staging` mode opens the simulator in a browser instead; you click through a mock approval
+  there (no camera, no Face/Selfie Check, no World account required) and get back a real,
+  validly-signed World proof. Everything downstream — the backend's `/api/v4/verify` call,
+  `signal_hash` recomputation, nullifier storage — runs exactly as it would in production,
+  because the proof is real, just issued for a simulated identity. This is the closest thing
+  to a "mock account" World offers, and it's generally open (no request needed).
+- **`sandbox` environment** — a special TestFlight build of the real World ID app. Closer to
+  production behavior, but access is "by request," so don't plan around having it in time.
+
+**Not yet confirmed** (this is on §19's "still to ask" list, not verified in this session):
+whether 4.0 sessions and Selfie Check specifically — as opposed to World ID in general — are
+live on `staging` today. Check this first; it's a 10-minute test, not a blocker, but don't
+build the rest of `WorldIDService` assuming it works until you've seen a real `staging` proof
+come back.
+
+Where this plugs in: §11's `WorldIDService` sketch builds an `IdKitSessionConfig` with an
+`environment:` field (shown there as `.production`). Set it to `.staging` (check the actual
+enum case name in the generated bindings you pull down in step 1b — `.production` is
+confirmed from the doc's sketch, the staging case name is not). Everything else in
+`WorldIDService` — the request-building, `connectUrl()`, polling — is unchanged between
+environments; only this one field and which URL the user is handed off to differ. Switch it
+back to `.production` before the real two-phone demo in step 6, since a `staging` proof will
+not verify against World's production `/api/v4/verify`.
+
+### 1b. Confirm the generated idkit-swift bindings actually work
 
 Per §11: idkit-swift 4.0.11's **public** wrapper doesn't expose `createSession`/
 `proveSession` or the 4.0 Selfie preset yet. You have to call the **generated** (but public)
@@ -41,9 +81,10 @@ Steps:
    version 4.0.11 or later — check for a newer release that re-enables the public wrapper
    first, since that would remove this whole risk).
 2. Write a throwaway single-view test target that does nothing but: build a uniqueness
-   request (`action: "pupille-profile-v1"`), open the resulting `connectUrl()` in the World
-   App, and poll for a result. Confirm you get a real proof back before writing any other
-   app code.
+   request (`action: "pupille-profile-v1"`) with `environment: .staging` (per 1a — this is
+   where you'd use the simulator instead of a real World App session), open the resulting
+   `connectUrl()`, and poll for a result. Confirm you get a real proof back before writing
+   any other app code.
 3. If it doesn't compile or the generated bindings don't behave as documented: fall back
    per §19 — the backend can drive IDKit itself via `@worldcoin/idkit-core` 4.3.0 (already a
    dependency in `backend/`) and hand the app a `connectorURI` to open, with the app just
@@ -116,7 +157,10 @@ phone to reach it:
    - `PUPILLE_RP_ID` — your actual World `rp_id`.
    - `PUPILLE_APP_ID` — must match the bundle ID App Attest is registered under.
    - `PUPILLE_WORLD_API_BASE` — leave as `https://developer.worldcoin.org` unless World
-     gives you a different sandbox host.
+     gives you a different sandbox host. **Not yet confirmed:** whether a proof issued by
+     the client's `.staging` environment (per 1a) verifies against this same host/endpoint,
+     or needs a different `worldApiBase` while testing that way — check this alongside 1a's
+     open question rather than assuming either way.
    - **Do not set** `PUPILLE_WORLD_API_FIXTURE_MODE` or `PUPILLE_APP_ATTEST_TEST_ROOT_PEM`
      — both are test-only escape hatches (`backend/src/config.ts`'s own comments say so);
      leaving either set in production defeats the pinning they're meant to bypass only for
@@ -125,7 +169,11 @@ phone to reach it:
 
 ## 6. Run the real two-phone demo
 
-Once both phones have the app installed and pointed at the real backend:
+**First, switch `WorldIDService`'s `environment` back to `.production`** if you used
+`.staging` (per 1a) during development — §18's build plan itself calls this out as a
+`must`-tier step ("Switch to production IDKit. Both of you complete Selfie Check in the real
+World App.") and a staging-issued proof is not expected to satisfy a judge checking the real
+flow. Once both phones have the app installed and pointed at the real backend:
 1. Create `@handle` on phone A — two World App approvals (uniqueness, then session), then
    Face ID. Confirm the profile cert comes back.
 2. Take a photo, Post & Verify — cancel in the World App on the first attempt to prove the
