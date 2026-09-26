@@ -361,6 +361,36 @@ final class AppModel: ObservableObject {
         ]
     }
 
+    func proofExportData(for post: FeedPost, image: Data) throws -> Data {
+        let checks = verificationChecks[post.id] ?? audit(post: post, image: image)
+        let payload: [String: Any] = [
+            "format": "pupille-capture-proof-v1",
+            "postId": post.id,
+            "createdAt": post.createdAt,
+            "caption": post.caption ?? "",
+            "imageFile": "pupille-\(post.id).jpg",
+            "imageSha256": Data(SHA256.hash(data: image)).hex,
+            "author": [
+                "handle": post.author.handle,
+                "profileId": post.author.profileId,
+                "publicKey": post.author.publicKey,
+            ],
+            "issuerPublicKeyHex": issuerPublicKeyHex,
+            "profileCertificate": [
+                "certB64": post.profileCert.certB64,
+                "sigB64": post.profileCert.sigB64,
+            ],
+            "captureCertificate": [
+                "certB64": post.captureCert.certB64,
+                "sigB64": post.captureCert.sigB64,
+            ],
+            "postSignatureB64": post.postSignature,
+            "checks": checks.map { ["name": $0.title, "passed": $0.passed] },
+            "note": "World Human proof was verified when the profile was created. This export contains Pupille's signed certificates and the original photo bytes for independent checking; it does not prove the physical scene is unaltered.",
+        ]
+        return try JSONSerialization.data(withJSONObject: payload, options: [.prettyPrinted, .sortedKeys])
+    }
+
     @discardableResult
     func publish(imageData: Data, caption: String) async -> Bool {
         isBusy = true
