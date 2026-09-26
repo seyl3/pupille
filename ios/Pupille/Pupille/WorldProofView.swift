@@ -128,8 +128,10 @@ struct ContentView: View {
                     .stroke(.primary.opacity(0.08), lineWidth: 1)
                     .frame(width: 188, height: 188)
                 Circle()
-                    .trim(from: 0.02, to: 0.25)
-                    .stroke(.primary.opacity(0.34), style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .stroke(AngularGradient(
+                        colors: [.primary.opacity(0.08), .primary.opacity(0.08),
+                                 .primary.opacity(0.48), .primary.opacity(0.08)],
+                        center: .center), lineWidth: 2)
                     .frame(width: 188, height: 188)
                     .rotationEffect(.degrees(orbiting ? 360 : 0))
                     .animation(reduceMotion ? nil : .linear(duration: 11).repeatForever(autoreverses: false),
@@ -753,6 +755,7 @@ private struct PostVerificationView: View {
     @ObservedObject var model: AppModel
     let post: FeedPost
     @Environment(\.dismiss) private var dismiss
+    @State private var copiedDetail: String?
 
     private var checks: [VerificationCheck] {
         model.verificationChecks[post.id] ?? [
@@ -787,6 +790,37 @@ private struct PostVerificationView: View {
                             .frame(maxWidth: .infinity, alignment: .leading)
                             .padding(.vertical, 8)
                     }
+                    VStack(alignment: .leading, spacing: 14) {
+                        Text("Proof details")
+                            .font(.headline)
+                        ForEach(model.proofDetails(for: post)) { detail in
+                            VStack(alignment: .leading, spacing: 6) {
+                                HStack {
+                                    Text(detail.title)
+                                        .font(.caption.weight(.semibold))
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                    Button {
+                                        UIPasteboard.general.string = detail.value
+                                        copiedDetail = detail.id
+                                        UISelectionFeedbackGenerator().selectionChanged()
+                                    } label: {
+                                        Label(copiedDetail == detail.id ? "Copied" : "Copy",
+                                              systemImage: copiedDetail == detail.id ? "checkmark" : "doc.on.doc")
+                                            .font(.caption.weight(.semibold))
+                                    }
+                                    .buttonStyle(.plain)
+                                }
+                                Text(detail.value)
+                                    .font(.system(.footnote, design: .monospaced))
+                                    .textSelection(.enabled)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                    .padding(18)
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24))
                     Text("World Human status was checked by Pupille when the profile was created. This screen verifies Pupille’s signed certificate and the photo bytes; it does not query World again.")
                         .font(.footnote).foregroundStyle(.secondary)
                         .padding(.top, 10)
