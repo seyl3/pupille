@@ -1,6 +1,6 @@
 import SwiftUI
 
-struct ContentView: View {
+struct DeviceLabView: View {
     @Environment(\.scenePhase) private var scenePhase
     @StateObject private var checks = DeviceChecks()
     @State private var showCamera = false

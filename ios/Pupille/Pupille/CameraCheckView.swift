@@ -7,6 +7,12 @@ struct CameraCheckView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var camera = CameraCheckSession()
     let onResult: (String) -> Void
+    let onPhoto: ((Data) -> Void)?
+
+    init(onResult: @escaping (String) -> Void, onPhoto: ((Data) -> Void)? = nil) {
+        self.onResult = onResult
+        self.onPhoto = onPhoto
+    }
 
     var body: some View {
         NavigationStack {
@@ -53,6 +59,7 @@ struct CameraCheckView: View {
         .onDisappear {
             camera.stop()
             if let data = camera.imageData {
+                onPhoto?(data)
                 let digest = SHA256.hash(data: data)
                 let prefix = digest.prefix(8).map { String(format: "%02x", $0) }.joined()
                 onResult("PASS: Captured \(data.count) bytes. SHA-256 starts \(prefix)")
@@ -130,7 +137,8 @@ private final class CameraCheckSession: NSObject, ObservableObject, AVCapturePho
 
     func capture() {
         guard isReady else { return }
-        output.capturePhoto(with: AVCapturePhotoSettings(), delegate: self)
+        let settings = AVCapturePhotoSettings(format: [AVVideoCodecKey: AVVideoCodecType.jpeg])
+        output.capturePhoto(with: settings, delegate: self)
     }
 
     func stop() {

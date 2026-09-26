@@ -12,6 +12,9 @@
 		A00000000000000000000003 /* DeviceChecks.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000003 /* DeviceChecks.swift */; };
 		A00000000000000000000004 /* CameraCheckView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000004 /* CameraCheckView.swift */; };
 		A00000000000000000000005 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000007 /* Assets.xcassets */; };
+	A00000000000000000000006 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000008 /* AppModel.swift */; };
+	A00000000000000000000007 /* WorldProofView.swift in Sources */ = {isa = PBXBuildFile; fileRef = B00000000000000000000009 /* WorldProofView.swift */; };
+	A00000000000000000000008 /* IDKit in Frameworks */ = {isa = PBXBuildFile; productRef = P00000000000000000000002 /* IDKit */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -22,6 +25,8 @@
 		B00000000000000000000005 /* Pupille.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Pupille.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		B00000000000000000000006 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		B00000000000000000000007 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+	B00000000000000000000008 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+	B00000000000000000000009 /* WorldProofView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WorldProofView.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -40,6 +45,8 @@
 				B00000000000000000000002 /* ContentView.swift */,
 				B00000000000000000000003 /* DeviceChecks.swift */,
 				B00000000000000000000004 /* CameraCheckView.swift */,
+				B00000000000000000000008 /* AppModel.swift */,
+				B00000000000000000000009 /* WorldProofView.swift */,
 				B00000000000000000000006 /* Info.plist */,
 				B00000000000000000000007 /* Assets.xcassets */,
 			);
@@ -63,12 +70,14 @@
 			buildPhases = (
 				E00000000000000000000001 /* Sources */,
 				E00000000000000000000002 /* Resources */,
+				E00000000000000000000003 /* Frameworks */,
 			);
 			buildRules = (
 			);
 			dependencies = (
 			);
 			name = Pupille;
+			packageProductDependencies = (P00000000000000000000002 /* IDKit */);
 			productName = Pupille;
 			productReference = B00000000000000000000005 /* Pupille.app */;
 			productType = "com.apple.product-type.application";
@@ -98,6 +107,7 @@
 			);
 			mainGroup = C00000000000000000000001;
 			productRefGroup = C00000000000000000000003 /* Products */;
+			packageReferences = (P00000000000000000000001 /* XCRemoteSwiftPackageReference "idkit-swift" */);
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -117,6 +127,10 @@
 		};
 /* End PBXResourcesBuildPhase section */
 
+/* Begin PBXFrameworksBuildPhase section */
+		E00000000000000000000003 /* Frameworks */ = {isa = PBXFrameworksBuildPhase; buildActionMask = 2147483647; files = (A00000000000000000000008 /* IDKit in Frameworks */); runOnlyForDeploymentPostprocessing = 0; };
+/* End PBXFrameworksBuildPhase section */
+
 /* Begin PBXSourcesBuildPhase section */
 		E00000000000000000000001 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
@@ -126,6 +140,8 @@
 				A00000000000000000000002 /* ContentView.swift in Sources */,
 				A00000000000000000000003 /* DeviceChecks.swift in Sources */,
 				A00000000000000000000004 /* CameraCheckView.swift in Sources */,
+				A00000000000000000000006 /* AppModel.swift in Sources */,
+				A00000000000000000000007 /* WorldProofView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -215,6 +231,14 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		P00000000000000000000001 /* XCRemoteSwiftPackageReference "idkit-swift" */ = {isa = XCRemoteSwiftPackageReference; repositoryURL = "https://github.com/worldcoin/idkit-swift"; requirement = {kind = exactVersion; version = 4.0.11; }; };
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		P00000000000000000000002 /* IDKit */ = {isa = XCSwiftPackageProductDependency; package = P00000000000000000000001 /* XCRemoteSwiftPackageReference "idkit-swift" */; productName = IDKit; };
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = D00000000000000000000002 /* Project object */;
 }
