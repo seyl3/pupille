@@ -9,7 +9,8 @@
     "start": "node dist/src/index.js",
     "test": "vitest run",
     "migrate": "tsx src/db/migrate.ts",
-    "attest:probe": "node dist/src/attestProbe.js"
+    "attest:probe": "node dist/src/attestProbe.js",
+    "world:probe": "node --env-file=.env.world.local dist/src/worldProbe.js"
   },
   "dependencies": {
     "@hono/node-server": "^1.13.0",
